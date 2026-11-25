@@ -25,6 +25,7 @@ export_presets.cfg.bak
 
 # OS / Editor / Vault
 .obsidian/
+.nomedia
 .DS_Store
 Thumbs.db
 *.swp

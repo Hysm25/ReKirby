@@ -62,4 +62,11 @@ updated: 2026-11-25
   - Reset `docs/STATUS.md` to the 4-phase Vertical Slice Roadmap (Phase 0–4) with accurate pre-implementation status.
   - Purged all legacy ReTetris session logs and disassembly notes from `docs/MEMORY.md` while keeping Hardware Constraints & Environment Quirks intact.
   - Initialized Git repository on `main`, added `origin` (`git@github.com:Hysm25/ReKirby.git`), created root `AGENTS.md` with coding invariants, verification gate, and user-authorized auto-commit/push policy, persisted `safe.directory` in `~/.gitconfig`, and pushed foundation commits to `origin main`.
-  - **Next Step**: Relocate `Kirby's Adventure (USA) (Rev A).nes` into `rom/` and begin Phase 0/1 (`project.godot` + ROM Extractor & Asset Importer).
+  - **Next Step**: Begin Phase 1.5 / Phase 2 (map PRG-ROM metatile/room/palette tables, implement 16x16 metatile physics, slopes, and Kirby's core controller + Copy Abilities).
+- **[2026-11-25] Phase 0 & Phase 1 Core Implementation**:
+  - Moved `Kirby's Adventure (USA) (Rev A).nes` into `rom/` (verified ignored by `.gitignore`) and added `rom/.gitkeep`.
+  - Created `project.godot` (Godot 4.7 `gl_compatibility`, `256x240`, `canvas_items`/`expand`, `default_texture_filter=0`, `60` TPS, strict GDScript warnings enabled, autoloads `EventBus`, `ContentRegistry`, `InputManager`).
+  - Implemented `src/core/` (`constants.gd`, `event_bus.gd`, `content_registry.gd`, `input_manager.gd`), `src/importer/` (`rom_validator.gd`, `mmc3_mapper.gd`, `hal_decompressor.gd`, `chr_extractor.gd`, `rom_importer.gd`), and `src/main.gd` + `src/main.tscn` (Mandatory ROM Setup Guard + 256x192 / 256x48 scanline split preview).
+  - **Environment Quirk Solved**: Headless `godot` on a fresh `.godot/` folder lacks `.godot/global_script_class_cache.cfg`, causing `class_name` identifiers to fail parsing. Solved by adding explicit `const X = preload("res://...")` references in every script alongside `class_name` and running `SceneTree` tests from `_initialize()`.
+  - Added `MAX_ITERATIONS` / directory entry bounds to `while` loops in `hal_decompressor.gd`, `rom_importer.gd`, and `test_importer.gd`.
+  - Verified with `timeout 15s godot --headless --path . --quit-after 5` and `timeout 15s godot --headless -s tests/test_runner.gd` (100% pass, including live ROM extraction and `user://nes_data/` reload).
