@@ -2,18 +2,18 @@
 
 > **Project**: **ReKirby** — Clean-Room Port of *Kirby's Adventure* (NES, 1993 — Mapper 4 MMC3)  
 > **Engine**: Godot 4 (Strictly Typed GDScript, 60 TPS, GL Compatibility)  
-> **Overall Estimated ROM Fidelity**: **~67% / 100%** (Tracks A, B, C & E OAM/HUD/Title/Door-Graph/Bank-29 APU SFX parity complete; headless suite passing `378/378`)
+> **Overall Estimated ROM Fidelity**: **~79% / 100%** (Tracks A–E + full 327-room Worlds 1–7 extraction, 25 Copy Abilities, Pause/Game Over/Ending & 3-slot Save complete; headless suite passing `421/421`)
 
 ---
 
-## 1. ROM Fidelity Scorecard (~67% / 100%)
+## 1. ROM Fidelity Scorecard (~79% / 100%)
 
 | Track | Scope | Est. Fidelity | Key Parity Gaps Observed |
 | :--- | :--- | :---: | :--- |
 | **Track A** | **Authentic OAM Sprite & Animation Bank Mapping** | **~75%** | `WorldExtractor` dynamically extracts Bank `24` -> script `0x1A` metasprite tables across all 27 World 1 actors + Bank `26..28` Kirby & Effect tables (`R0` CHR slots, `dx/dy`, `8x16` tiles, `attr` H/V flips & `SP0..SP3` palettes); remaining gaps are Copy Hat walking overlay compositing (`B26 $8EE6`), script wait-tick frame durations, and Whispy BG mouth/apple nametable patches. |
 | **Track B** | **HUD, Font & Screen Layout Accuracy** | **~90%** | `WorldExtractor` extracts `B19 $AE7A` (Stage HUD), `B19 $AED5` (Hub HUD), `B19 $B3A4/$B3E1` (Lives packets), `B19 $B1F6/$B12C` (`SCORE`/`ENEMY`), `B19 $B313/$B338` (`4x5` Copy Cards), and `B61 $AB5C/$AA50/$ADB8` Title Screen (`32x30` + attributes + palettes); minor remaining gap is animated `R2` HP pip cycle (`122..125`) stepping continuously at 60Hz and World-Map `AFE1` sub-panel overlay. |
 | **Track C** | **Room, Door, Scroll & Transition Fidelity** | **~85%** | `Constants.map_nes_collision_to_enum()` maps `0x20`/`0xA0` to `DOOR_TRANSITION`, `WorldExtractor` extracts `bgm_id`/`scroll_flag` + `trigger_mode` (`up_press`, `edge_top`, `edge_bottom`, `edge_right`), `Main` & `LevelMap` handle 21-room World 1 door traversal, Boss Room `30` arena camera lock, `Hub Room 0` (`456, 80`) victory return, pit defeat, and 8-frame door fade-in; minor remaining gap is Warp Star ride cutscene & Hub cleared-door star sprites. |
-| **Track D** | **Full World 1–7 Extraction & Gameplay Completeness** | **~15%** | `WorldExtractor` only extracts World 1 (21 rooms, 9 tilesets) and implements 4 of 24+ Copy Abilities; Worlds 2–7 (Ice Cream Island through Rainbow Resort), mid-bosses, museum/arena/sub-game rooms, Stage `1-4`, Save Slot select, Game Over, and Ending sequences are unimplemented. |
+| **Track D** | **Full World 1–7 Extraction & Gameplay Completeness** | **~75%** | `WorldExtractor` extracts all `327` ROM rooms (`0..326`), `34` valid ROM tilesets, all `62` unique actor metasprites, and Worlds 1–7 Hubs (`0..6`), Bosses (`30..36`), & Fountain of Dreams (`15`); implemented 25 Copy Abilities (`AbilityGeneric` + `Sword/Fire/Spark/Beam`) mapped to `B19 $B313/$B338` cards & `EnemyBase.ability_for_actor_id()`, `SaveManager` 3-slot persistence, Pause (`PAUSED`), Game Over (`GAME_OVER`), and Ending (`ENDING`); remaining gaps are distinct World 2–7 Boss AI behaviors (Paint Roller, Mr. Shine/Bright, Kracko, Heavy Mole, Meta Knight, King Dedede, Nightmare) and playable Sub-Games/Museum UI. |
 | **Track E** | **2A03 APU & DPCM Audio Accuracy** | **~85%** | Audited Bank `29` (`0x1D`) bytecode handlers (`$83DC..$8679`): fixed `0xE1` attenuation vs `0xF2` tempo, `0xE2` raw period write, `0xE3` cumulative signed period-bend sweeps (`$8666`), `0xF7` vibrato ID (`$8738`), and `$8046` SFX priority precedence (`lower numeric value = higher precedence`); wired `Constants.NesSfx` triggers across `KirbyController` & `Main` (`JUMP`, `HOVER_PUFF`, `INHALE`, `STAR_SPIT`, `SWALLOW`, `ABILITY_ATTACK`, `ABILITY_DROP`, `SLIDE`, `HURT`, `DOOR_WARP`, `BLOCK_BREAK`, `STAGE_CLEAR`); minor remaining gap is runtime `$8738` vibrato LFO modulation. |
 
 ---
@@ -44,6 +44,10 @@ The following clean-room engine infrastructure is built and verified (`tests/tes
 - [x] **Audit Bank 29 (`0x1D`) Sound Driver Opcodes**: Fixed `0xE1` fade/attenuation separation from `0xF2` tempo, `0xE2` raw 11-bit period retrigger (`$83DC`), `0xE3` cumulative signed period delta sweeps (`$8666`), `0xF7` vibrato table index (`$8738`), and `$8046` SFX priority precedence (`lower = higher priority`) in `MusicPlayer`.
 - [x] **Wire Complete Gameplay SFX Triggers**: Added `Constants.NesSfx` and wired `EventBus.sfx_requested` across `KirbyController` (`JUMP`, `HOVER_PUFF`, `INHALE`, `STAR_SPIT`, `SWALLOW`, `ABILITY_ATTACK`, `ABILITY_DROP`, `SLIDE`, `HURT`) and `Main` (`DOOR_WARP`, `BLOCK_BREAK`, `STAGE_CLEAR`) (`378/378` tests passing).
 
-### Fidelity Milestone 5 — Track D: Full World 1–7 Extraction, Remaining Abilities, Mid-Bosses & Save/Ending Loops (**NEXT / IN QUEUE**)
-- [ ] **Generalize `WorldExtractor` to Worlds 1–7**: Extract all World 1–7 hubs, stages, animated tile swaps, sub-palettes, doors, and actor spawn tables (`Vegetable Valley`, `Ice Cream Island`, `Butter Building`, `Grape Garden`, `Yogurt Yard`, `Orange Ocean`, `Rainbow Resort`).
-- [ ] **Implement Remaining Copy Abilities, Mid-Bosses & Meta Loops**: Add remaining Copy Abilities, mid-boss encounters, Arena/Museum/Sub-Game rooms, 3-slot Battery Save / Game Over flow, Pause Screen ability description display, and Credits/Ending sequence.
+### Fidelity Milestone 5 — Track D: Full World 1–7 Extraction, Remaining Abilities, Mid-Bosses & Save/Ending Loops (Completed)
+- [x] **Generalize `WorldExtractor` to Worlds 1–7**: Fixed `screen_grid` reuse size check for rooms `14/212/223` and unused tileset slots (`29..31, 33, 37..47`), extracting all `327` ROM rooms (`0..326`), `34` valid tilesets, all `62` unique actor metasprites, and Worlds 1–7 Hubs (`0..6`), Bosses (`30..36`), & Fountain of Dreams (`15`) (`EXTRACTION_FORMAT_VERSION = 8`).
+- [x] **Implement Remaining Copy Abilities & Meta Loops**: Added 20 additional Copy Abilities via `AbilityGeneric` (`CUTTER` through `SLEEP`, 25 total) mapped to `B19 $B313/$B338` cards & `EnemyBase.ability_for_actor_id()`, 3-slot `SaveManager` (`user://save_data.json`), Pause (`PAUSED`), Game Over (`GAME_OVER`), World 2–7 Boss progression, and Ending (`ENDING`) state (`421/421` tests passing).
+
+### Fidelity Milestone 6 — Track D/A: Distinct World 2–7 Bosses, Mid-Bosses, Ability Hat Overlays & APU Vibrato (**NEXT / IN QUEUE**)
+- [ ] **Distinct World 2–7 Boss & Mid-Boss AI**: Implement dedicated 60 TPS state machines and ROM OAM/BG visuals for Paint Roller (`R31`), Mr. Shine & Mr. Bright (`R32`), Kracko (`R33`), Heavy Mole (`R34`), Meta Knight (`R35`), King Dedede (`R36`), Nightmare (`R15`), and mid-bosses (Poppy Bros Sr., Mr. Frosty, Bonkers, Bugzzy, Rolling Turtle, Grand Wheelie, Fire Lion).
+- [ ] **Copy Hat Overlays & Audio Vibrato Polish**: Add Kirby Copy Hat walking overlay compositing (`B26 $8EE6`), continuous `R2` HP pip animation (`122..125`), and runtime Bank 29 `$8738` vibrato LFO modulation in `MusicPlayer`.

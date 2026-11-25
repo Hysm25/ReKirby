@@ -401,15 +401,21 @@ static func extract_room(
 	var palette_set_id: int = raw[5]
 	var bgm_id: int = raw[6] & 0xFF
 	var scroll_flag: int = raw[7] & 0xFF
-	var expected_size: int = Constants.ROOM_HEADER_SIZE + w_screens * h_screens * Constants.ROOM_SCREEN_METATILES
-	if w_screens <= 0 or h_screens <= 0 or raw.size() < expected_size:
+	var screen_count: int = w_screens * h_screens
+	if w_screens <= 0 or h_screens <= 0 or raw.size() < Constants.ROOM_HEADER_SIZE:
 		return {}
 
-	var screen_count: int = w_screens * h_screens
 	var screen_grid: Array[int] = []
 	screen_grid.resize(screen_count)
+	var max_scr_idx: int = 0
 	for i: int in range(screen_count):
-		screen_grid[i] = raw[8 + i]
+		var s_val: int = raw[8 + i]
+		screen_grid[i] = s_val
+		if s_val > max_scr_idx:
+			max_scr_idx = s_val
+	var expected_size: int = Constants.ROOM_HEADER_SIZE + (max_scr_idx + 1) * Constants.ROOM_SCREEN_METATILES
+	if raw.size() < expected_size:
+		return {}
 
 	# Unpack flat 2D metatile map in row-major order: width = w_screens * 16, height = h_screens * 12
 	var map_width: int = w_screens * Constants.ROOM_SCREEN_COLS
@@ -524,9 +530,11 @@ static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
 		hud_pal_raw[31] & 0x3F,
 	]
 
-	# Traverse World 1 dynamically starting at Room 0 (Vegetable Valley Hub)
+	# Traverse World 1 dynamically starting at Room 0 (Vegetable Valley Hub) to track World 1 metrics,
+	# then extract all remaining ROM rooms (0..326) and all 49 tilesets (0..48) for Worlds 1-7 parity.
 	var queue: Array[int] = [Constants.WORLD1_HUB_ROOM_ID]
 	var visited: Dictionary = {}
+	var world1_tilesets: Dictionary = {}
 	var needed_tilesets: Dictionary = {}
 	var seen_actors: Dictionary = {}
 	var iterations: int = 0
@@ -545,6 +553,7 @@ static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
 
 		result.rooms[rid] = room_data
 		var ts_id: int = int(room_data["tileset_id"])
+		world1_tilesets[ts_id] = true
 		needed_tilesets[ts_id] = true
 		var r_ents: Array = room_data.get("entities", []) as Array
 		for ent_var: Variant in r_ents:
@@ -577,12 +586,37 @@ static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
 			if not visited.has(dst) and not queue.has(dst):
 				queue.append(dst)
 
-	for ts_key: Variant in needed_tilesets.keys():
-		var ts_id: int = int(ts_key)
+	result.stage_start_rooms["world1_room_count"] = visited.size()
+	result.stage_start_rooms["world1_tileset_count"] = world1_tilesets.size()
+
+	# Extract all remaining ROM rooms (0..326) across Worlds 2-7 & bonus/arena rooms
+	for rid: int in range(Constants.TOTAL_ROM_ROOMS):
+		if result.rooms.has(rid):
+			continue
+		var room_data: Dictionary = extract_room(mapper, rid, kirby_palette)
+		if room_data.is_empty():
+			continue
+		result.rooms[rid] = room_data
+		var ts_id: int = int(room_data["tileset_id"])
+		needed_tilesets[ts_id] = true
+		var r_ents: Array = room_data.get("entities", []) as Array
+		for ent_var: Variant in r_ents:
+			var ent_d: Dictionary = ent_var as Dictionary
+			var aid: int = int(ent_d.get("actor_id", -1))
+			if aid >= 0:
+				seen_actors[aid] = true
+		var r_pals: Dictionary = room_data["palettes"] as Dictionary
+		for p_idx: int in range(4):
+			result.palettes["room_%d_bg_%d" % [rid, p_idx]] = r_pals["bg_%d" % p_idx]
+			result.palettes["room_%d_sp_%d" % [rid, p_idx]] = r_pals["sp_%d" % p_idx]
+
+	for ts_id: int in range(Constants.TOTAL_ROM_TILESETS):
 		var ts_data: Dictionary = extract_tileset(mapper, ts_id, prop_table)
 		if ts_data.is_empty():
-			result.error = "Failed to extract World 1 tileset %d." % ts_id
-			return result
+			if needed_tilesets.has(ts_id):
+				result.error = "Failed to extract needed ROM tileset %d." % ts_id
+				return result
+			continue
 		result.tilesets[ts_id] = ts_data
 
 	var actor_id_list: Array[int] = []
@@ -792,13 +826,33 @@ static func extract_ui_layouts(mapper: MMC3Mapper, palettes_out: Dictionary) -> 
 			"flag": (spec_byte >> 4) & 0x0F,
 		})
 
-	# Map ReKirby CopyAbility enum -> B19 $B313/$B338 card index (0=Normal, 4=Sword, 1=Fire, 2=Spark, 16=Beam)
+	# Map ReKirby CopyAbility enum -> B19 $B313/$B338 card index (0..24)
 	var ability_card_map: Dictionary = {
 		str(Constants.CopyAbility.NONE): 0,
 		str(Constants.CopyAbility.SWORD): 4,
 		str(Constants.CopyAbility.FIRE): 1,
 		str(Constants.CopyAbility.SPARK): 2,
 		str(Constants.CopyAbility.BEAM): 16,
+		str(Constants.CopyAbility.CUTTER): 3,
+		str(Constants.CopyAbility.ICE): 13,
+		str(Constants.CopyAbility.FREEZE): 14,
+		str(Constants.CopyAbility.WHEEL): 8,
+		str(Constants.CopyAbility.STONE): 17,
+		str(Constants.CopyAbility.HAMMER): 9,
+		str(Constants.CopyAbility.PARASOL): 10,
+		str(Constants.CopyAbility.NEEDLE): 12,
+		str(Constants.CopyAbility.TORNADO): 19,
+		str(Constants.CopyAbility.HI_JUMP): 15,
+		str(Constants.CopyAbility.BALL): 18,
+		str(Constants.CopyAbility.FIREBALL): 5,
+		str(Constants.CopyAbility.LASER): 6,
+		str(Constants.CopyAbility.MIKE): 7,
+		str(Constants.CopyAbility.CRASH): 20,
+		str(Constants.CopyAbility.THROW): 23,
+		str(Constants.CopyAbility.BACKDROP): 22,
+		str(Constants.CopyAbility.LIGHT): 21,
+		str(Constants.CopyAbility.UFO): 24,
+		str(Constants.CopyAbility.SLEEP): 11,
 	}
 
 	var hud_dict: Dictionary = {

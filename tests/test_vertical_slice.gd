@@ -387,6 +387,41 @@ func _test_live_world1_stages_and_boss_vertical_slice() -> void:
 	_assert_true(game.load_world_room(57, Vector2(40.0, 240.0), true), "Main loads Stage 1-4 Room 57")
 	_assert_eq_int(game._level_map.get_bgm_id(), 17, "Stage 1-4 Room 57 exposes authentic BGM ID 17")
 
+	# Verify Worlds 2-7 Hub loading (Room 1..6) and Pause / CopyAbility / SaveManager integration
+	for hub_idx: int in range(1, Constants.WORLD_HUB_ROOM_IDS.size()):
+		var hub_rid: int = Constants.WORLD_HUB_ROOM_IDS[hub_idx]
+		_assert_true(game.load_world_room(hub_rid, Vector2(64.0, 128.0), true), "Main loads World %d Hub (Room %d)" % [hub_idx + 1, hub_rid])
+		_assert_eq_int(game.get_current_world(), hub_idx + 1, "Current world updates to %d in Hub Room %d" % [hub_idx + 1, hub_rid])
+
+	game.toggle_pause()
+	_assert_eq_int(game.get_current_state(), Constants.GameState.PAUSED, "toggle_pause enters PAUSED state")
+	game.toggle_pause()
+	_assert_eq_int(game.get_current_state(), Constants.GameState.PLAYING, "toggle_pause resumes PLAYING state")
+
+	# Verify expanded Copy Abilities & EnemyBase actor mappings
+	for test_ab: int in [Constants.CopyAbility.CUTTER, Constants.CopyAbility.ICE, Constants.CopyAbility.WHEEL, Constants.CopyAbility.HAMMER, Constants.CopyAbility.TORNADO, Constants.CopyAbility.UFO]:
+		game._kirby.equip_copy_ability(test_ab)
+		_assert_eq_int(game._kirby.copy_ability, test_ab, "Kirby equips CopyAbility %d" % test_ab)
+		_assert_true(game._kirby._active_ability != null, "CopyAbility %d attaches active AbilityBase node" % test_ab)
+	_assert_eq_int(EnemyBase.ability_for_actor_id(19), Constants.CopyAbility.CUTTER, "Actor 19 maps to CUTTER")
+	_assert_eq_int(EnemyBase.ability_for_actor_id(23), Constants.CopyAbility.WHEEL, "Actor 23 maps to WHEEL")
+	_assert_eq_int(EnemyBase.ability_for_actor_id(34), Constants.CopyAbility.HAMMER, "Actor 34 maps to HAMMER")
+
+	# Verify 3-slot SaveManager persistence
+	var SaveMgr = preload("res://src/core/save_manager.gd")
+	var test_save_path: String = "user://save_data_test.json"
+	if FileAccess.file_exists(test_save_path):
+		DirAccess.remove_absolute(test_save_path)
+	var empty_slots: Array[Dictionary] = SaveMgr.load_all_slots(test_save_path)
+	_assert_eq_int(empty_slots.size(), 3, "SaveManager provides 3 save slots")
+	var saved_slot: Dictionary = SaveMgr.record_world_clear(0, 3, 12500, 5, Constants.CopyAbility.HAMMER, test_save_path)
+	_assert_true(bool(saved_slot.get("occupied", false)), "SaveManager marks cleared slot occupied")
+	_assert_eq_int(int(saved_slot.get("unlocked_world", 1)), 4, "Clearing World 3 unlocks World 4")
+	var reloaded_slots: Array[Dictionary] = SaveMgr.load_all_slots(test_save_path)
+	_assert_eq_int(int(reloaded_slots[0].get("score", 0)), 12500, "SaveManager persists score across reload")
+	if FileAccess.file_exists(test_save_path):
+		DirAccess.remove_absolute(test_save_path)
+
 	InputManager.clear_mock_mask()
 	game._clear_room_entities()
 	game.free()

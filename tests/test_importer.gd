@@ -281,20 +281,25 @@ func _test_live_rom_ingestion_if_present() -> void:
 	_assert_eq_int(int(res.manifest.get("chr_banks_1k", 0)), 256, "Live ROM extracted 256 x 1KB CHR banks")
 	_assert_eq_int(int(res.manifest.get("world1_room_count", 0)), 21, "Live ROM extracted 21 World 1 rooms")
 	_assert_eq_int(int(res.manifest.get("world1_tileset_count", 0)), 9, "Live ROM extracted 9 World 1 tilesets")
+	_assert_eq_int(int(res.manifest.get("total_room_count", 0)), Constants.TOTAL_ROM_ROOMS, "Live ROM extracted all 327 ROM rooms")
+	_assert_eq_int(int(res.manifest.get("total_tileset_count", 0)), 34, "Live ROM extracted all 34 valid ROM tilesets")
 	_assert_eq_int(int(res.manifest.get("prg_crc32", 0)), Constants.ROM_PRG_CRC32, "Live ROM PRG CRC32 verified")
 	_assert_eq_int(int(res.manifest.get("chr_crc32", 0)), Constants.ROM_CHR_CRC32, "Live ROM CHR CRC32 verified")
 
-	# Verify reloading cached PNG sheets, palettes, and World 1 room/metatile tables from disk
+	# Verify reloading cached PNG sheets, palettes, and full Worlds 1-7 room/metatile tables from disk
 	var reloaded: bool = ContentRegistry.load_from_user_data(
 		test_user_dir.path_join("manifest.json"),
 		test_user_dir.path_join("chr_banks"),
 		test_user_dir.path_join("palettes.json"),
 		test_user_dir.path_join("world1_data.json")
 	)
-	_assert_true(reloaded and ContentRegistry.is_ready(), "ContentRegistry reloads cached CHR, palettes, and World 1 data from disk")
+	_assert_true(reloaded and ContentRegistry.is_ready(), "ContentRegistry reloads cached CHR, palettes, and World 1-7 data from disk")
 	_assert_eq_int(ContentRegistry.get_chr_1k_bank_count(), 256, "Reloaded ContentRegistry exposes 256 x 1KB CHR banks")
-	_assert_eq_int(ContentRegistry.get_room_ids().size(), 21, "Reloaded ContentRegistry exposes 21 World 1 rooms")
-	_assert_eq_int(ContentRegistry.get_tileset_ids().size(), 9, "Reloaded ContentRegistry exposes 9 World 1 tilesets")
+	_assert_eq_int(ContentRegistry.get_room_ids().size(), Constants.TOTAL_ROM_ROOMS, "Reloaded ContentRegistry exposes all 327 ROM rooms")
+	_assert_eq_int(ContentRegistry.get_tileset_ids().size(), 34, "Reloaded ContentRegistry exposes all 34 valid ROM tilesets")
+	for hub_id: int in Constants.WORLD_HUB_ROOM_IDS:
+		_assert_true(ContentRegistry.has_room(hub_id), "ContentRegistry contains World Hub Room %d" % hub_id)
+	_assert_true(ContentRegistry.has_room(Constants.FOUNTAIN_OF_DREAMS_ROOM_ID), "ContentRegistry contains Fountain of Dreams (Room 15)")
 
 	# Verify World 1 Hub (R000), Stage 1-1 Room 1 (R043), and Whispy Woods Boss (R030)
 	_assert_true(ContentRegistry.has_room(0), "ContentRegistry contains World 1 Hub (Room 0)")

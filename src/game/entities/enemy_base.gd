@@ -89,13 +89,67 @@ static func map_rom_actor_id(actor_id: int) -> int:
 			return EnemyType.SPARKY
 		41:
 			return EnemyType.BRONTO_BURT
-		# Secondary World 1 actors mapped cleanly to closest authentic behavior
+		# Secondary World 1-7 actors mapped cleanly to closest authentic behavior
 		19, 27, 28, 34, 43, 60:
+			return EnemyType.WADDLE_DEE
+		10, 11, 20, 22, 25, 26, 29, 30, 31, 35, 36, 37, 38, 40, 42, 45, 46, 47, 48, 54, 55, 58, 59, 61, 63, 64, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 79:
 			return EnemyType.WADDLE_DEE
 		23, 24, 32, 33, 44, 57, 65:
 			return EnemyType.BRONTO_BURT
 		_:
 			return -1
+
+
+static func ability_for_actor_id(p_actor_id: int) -> int:
+	match p_actor_id:
+		15:
+			return Constants.CopyAbility.BEAM
+		17:
+			return Constants.CopyAbility.SWORD
+		18:
+			return Constants.CopyAbility.FIRE
+		16:
+			return Constants.CopyAbility.SPARK
+		19:
+			return Constants.CopyAbility.CUTTER
+		20, 22:
+			return Constants.CopyAbility.ICE
+		23:
+			return Constants.CopyAbility.WHEEL
+		24:
+			return Constants.CopyAbility.PARASOL
+		25:
+			return Constants.CopyAbility.STONE
+		26:
+			return Constants.CopyAbility.NEEDLE
+		27:
+			return Constants.CopyAbility.SLEEP
+		28:
+			return Constants.CopyAbility.HI_JUMP
+		29:
+			return Constants.CopyAbility.BALL
+		30:
+			return Constants.CopyAbility.TORNADO
+		31:
+			return Constants.CopyAbility.LASER
+		32:
+			return Constants.CopyAbility.FREEZE
+		33:
+			return Constants.CopyAbility.UFO
+		34, 35:
+			return Constants.CopyAbility.HAMMER
+		36:
+			return Constants.CopyAbility.MIKE
+		37:
+			return Constants.CopyAbility.CRASH
+		38:
+			return Constants.CopyAbility.THROW
+		40:
+			return Constants.CopyAbility.BACKDROP
+		42:
+			return Constants.CopyAbility.LIGHT
+		_:
+			return Constants.CopyAbility.NONE
 
 
 static func default_ability_for_type(p_type: int) -> int:
@@ -162,7 +216,8 @@ func setup(
 ) -> void:
 	enemy_type = p_type
 	actor_id = p_actor_id if p_actor_id >= 0 else default_actor_id_for_type(p_type)
-	copy_ability = default_ability_for_type(p_type)
+	var actor_ab: int = ability_for_actor_id(actor_id)
+	copy_ability = actor_ab if actor_ab != Constants.CopyAbility.NONE else default_ability_for_type(p_type)
 	max_hp = default_hp_for_type(p_type)
 	hp = max_hp
 	score_value = default_score_for_type(p_type)

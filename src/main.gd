@@ -13,9 +13,20 @@ const EnemyBase = preload("res://src/game/entities/enemy_base.gd")
 const StarProjectile = preload("res://src/game/entities/star_projectile.gd")
 const WhispyWoods = preload("res://src/game/entities/whispy_woods.gd")
 const TitleScreen = preload("res://src/game/title_screen.gd")
+const SaveManager = preload("res://src/core/save_manager.gd")
 
 const DEFAULT_START_ROOM_ID: int = 43
 const BOSS_ROOM_ID: int = 30
+const BOSS_ROOM_IDS: Array[int] = [30, 31, 32, 33, 34, 35, 36]
+const WORLD_NAMES: Array[String] = [
+	"VEGETABLE VALLEY",
+	"ICE CREAM ISLAND",
+	"BUTTER BUILDING",
+	"GRAPE GARDEN",
+	"YOGURT YARD",
+	"ORANGE OCEAN",
+	"RAINBOW RESORT",
+]
 const DEFAULT_SPAWN_POS: Vector2 = Vector2(40.0, 128.0)
 const STAGE_CLEAR_BONUS: int = 2000
 const RESPAWN_DELAY_FRAMES: int = 60
@@ -53,6 +64,12 @@ var _defeat_frames: int = 0
 var _victory_frames: int = 0
 var _fade_frames: int = 0
 var _cleared_stages: Dictionary = {}
+var _current_world: int = 1
+var _unlocked_world: int = 1
+var _active_save_slot: int = 0
+var _pre_pause_state: int = Constants.GameState.PLAYING
+var _overlay_panel: ColorRect = null
+var _overlay_label: Label = null
 
 
 func _ready() -> void:
@@ -69,8 +86,31 @@ func _physics_process(_delta: float) -> void:
 			_title_screen.step_frame()
 		if InputManager.is_just_pressed(Constants.NesButton.START) or InputManager.is_just_pressed(Constants.NesButton.A):
 			start_new_game()
+	elif _current_state == Constants.GameState.PAUSED:
+		if InputManager.is_just_pressed(Constants.NesButton.START):
+			toggle_pause()
+		elif InputManager.is_just_pressed(Constants.NesButton.SELECT):
+			_set_overlay(false, "")
+			var hub_id: int = clampi(_current_world - 1, 0, 6)
+			load_world_room(hub_id, DEFAULT_SPAWN_POS, true)
+	elif _current_state == Constants.GameState.GAME_OVER:
+		if InputManager.is_just_pressed(Constants.NesButton.START) or InputManager.is_just_pressed(Constants.NesButton.A):
+			_set_overlay(false, "")
+			_lives = 4
+			_score = 0
+			EventBus.score_changed.emit(_score, 0)
+			EventBus.lives_changed.emit(_lives)
+			var hub_id: int = clampi(_current_world - 1, 0, 6)
+			load_world_room(hub_id, DEFAULT_SPAWN_POS, false)
+	elif _current_state == Constants.GameState.ENDING:
+		if InputManager.is_just_pressed(Constants.NesButton.START) or InputManager.is_just_pressed(Constants.NesButton.A):
+			_set_overlay(false, "")
+			_enter_ready_state()
 	elif _kirby != null and _level_map != null and (_current_state == Constants.GameState.PLAYING or _current_state == Constants.GameState.BOSS_FIGHT):
-		step_gameplay_frame()
+		if InputManager.is_just_pressed(Constants.NesButton.START):
+			toggle_pause()
+		else:
+			step_gameplay_frame()
 	if _music_player != null:
 		_music_player.step_frame()
 	if _apu_engine != null:
@@ -84,8 +124,24 @@ func step_gameplay_frame() -> void:
 	if _victory_frames > 0:
 		_victory_frames -= 1
 		if _victory_frames == 0:
-			_cleared_stages["boss"] = true
-			var hub_data: Dictionary = ContentRegistry.get_room_data(Constants.WORLD1_HUB_ROOM_ID)
+			var cleared_world: int = _current_world
+			if BOSS_ROOM_IDS.has(_current_room_id):
+				cleared_world = _current_room_id - BOSS_ROOM_ID + 1
+				_cleared_stages["boss_%d" % cleared_world] = true
+				_cleared_stages["boss"] = true
+				_unlocked_world = maxi(_unlocked_world, mini(7, cleared_world + 1))
+				SaveManager.record_world_clear(
+					_active_save_slot,
+					cleared_world,
+					_score,
+					_lives,
+					_kirby.copy_ability if _kirby != null else Constants.CopyAbility.NONE
+				)
+			if _current_room_id == 36 or _current_room_id == Constants.FOUNTAIN_OF_DREAMS_ROOM_ID:
+				_enter_ending_state()
+				return
+			var target_hub: int = clampi(cleared_world - 1, 0, 6)
+			var hub_data: Dictionary = ContentRegistry.get_room_data(target_hub)
 			var hub_w_scr: int = maxi(1, int(hub_data.get("width_screens", 2)))
 			var hub_sx: int = 1 % hub_w_scr
 			var hub_sy: int = 1 / hub_w_scr
@@ -93,7 +149,7 @@ func step_gameplay_frame() -> void:
 				float((hub_sx * Constants.ROOM_SCREEN_COLS + 12) * Constants.METATILE_SIZE + 8),
 				float((hub_sy * Constants.ROOM_SCREEN_ROWS + 5) * Constants.METATILE_SIZE)
 			)
-			if load_world_room(Constants.WORLD1_HUB_ROOM_ID, hub_spawn, true):
+			if load_world_room(target_hub, hub_spawn, true):
 				_update_camera_scroll()
 		return
 
@@ -357,14 +413,63 @@ func _handle_kirby_respawn() -> void:
 	_defeat_frames = 0
 	_lives -= 1
 	if _lives <= 0:
-		_lives = 4
-		_score = 0
-		EventBus.score_changed.emit(_score, 0)
+		_lives = 0
 		EventBus.lives_changed.emit(_lives)
-		load_world_room(DEFAULT_START_ROOM_ID, DEFAULT_SPAWN_POS, false)
+		var prev: int = _current_state
+		_current_state = Constants.GameState.GAME_OVER
+		_set_overlay(true, "GAME OVER\n\nPRESS START TO CONTINUE\nWORLD %d: %s" % [_current_world, _get_world_name(_current_world)])
+		EventBus.game_state_changed.emit(_current_state, prev)
 	else:
 		EventBus.lives_changed.emit(_lives)
 		load_world_room(_current_room_id, _room_spawn_pos, false)
+
+
+func _enter_ending_state() -> void:
+	var prev: int = _current_state
+	_current_state = Constants.GameState.ENDING
+	_set_overlay(true, "CONGRATULATIONS!\nFOUNTAIN OF DREAMS RESTORED!\n\nSCORE: %07d\nPRESS START FOR TITLE" % _score)
+	EventBus.game_state_changed.emit(_current_state, prev)
+
+
+func toggle_pause() -> void:
+	if _current_state == Constants.GameState.PAUSED:
+		var prev: int = _current_state
+		_current_state = _pre_pause_state
+		_set_overlay(false, "")
+		EventBus.game_state_changed.emit(_current_state, prev)
+	elif _current_state == Constants.GameState.PLAYING or _current_state == Constants.GameState.BOSS_FIGHT:
+		_pre_pause_state = _current_state
+		_current_state = Constants.GameState.PAUSED
+		var ab_name: String = "NORMAL"
+		if _kirby != null and _kirby._active_ability != null:
+			ab_name = _kirby._active_ability.get_ability_name()
+		_set_overlay(true, "PAUSED\n\nWORLD %d: %s\nABILITY: %s\n\nSTART: RESUME\nSELECT: WORLD HUB" % [_current_world, _get_world_name(_current_world), ab_name])
+		EventBus.game_state_changed.emit(_current_state, _pre_pause_state)
+
+
+func _get_world_name(world_num: int) -> String:
+	var idx: int = clampi(world_num - 1, 0, WORLD_NAMES.size() - 1)
+	return WORLD_NAMES[idx]
+
+
+func _set_overlay(show_panel: bool, msg: String) -> void:
+	if _overlay_panel == null:
+		return
+	_overlay_panel.visible = show_panel
+	if _overlay_label != null:
+		_overlay_label.text = msg
+
+
+func get_current_state() -> int:
+	return _current_state
+
+
+func get_current_world() -> int:
+	return _current_world
+
+
+func get_unlocked_world() -> int:
+	return _unlocked_world
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -489,6 +594,26 @@ func _build_gameplay_panel() -> void:
 	_hud_renderer = HUDRenderer.new()
 	_gameplay_panel.add_child(_hud_renderer)
 
+	# Pause / Game Over / Ending Overlay inside 256x192 playfield
+	_overlay_panel = ColorRect.new()
+	_overlay_panel.name = "StateOverlay"
+	_overlay_panel.color = Color(0.0, 0.0, 0.0, 0.78)
+	_overlay_panel.position = Vector2.ZERO
+	_overlay_panel.size = Vector2(Constants.PLAYFIELD_WIDTH, Constants.PLAYFIELD_HEIGHT)
+	_overlay_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_overlay_panel.visible = false
+	_playfield_clip.add_child(_overlay_panel)
+
+	_overlay_label = Label.new()
+	_overlay_label.name = "OverlayText"
+	_overlay_label.position = Vector2(12.0, 28.0)
+	_overlay_label.size = Vector2(Constants.PLAYFIELD_WIDTH - 24.0, Constants.PLAYFIELD_HEIGHT - 56.0)
+	_overlay_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_overlay_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_overlay_label.add_theme_font_size_override("font_size", 10)
+	_overlay_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
+	_overlay_panel.add_child(_overlay_label)
+
 	# Cross-platform mobile/touch overlay
 	_virtual_gamepad = VirtualGamepad.new()
 	add_child(_virtual_gamepad)
@@ -587,6 +712,11 @@ func start_new_game() -> bool:
 	_lives = 4
 	_score = 0
 	_cleared_stages.clear()
+	var slots: Array[Dictionary] = SaveManager.load_all_slots()
+	var slot_data: Dictionary = slots[_active_save_slot]
+	_unlocked_world = clampi(int(slot_data.get("unlocked_world", 1)), 1, 7)
+	_current_world = 1
+	_set_overlay(false, "")
 	var start_room: int = DEFAULT_START_ROOM_ID if ContentRegistry.has_room(DEFAULT_START_ROOM_ID) else Constants.WORLD1_HUB_ROOM_ID
 	if load_world_room(start_room, DEFAULT_SPAWN_POS, false):
 		_update_camera_scroll()
@@ -623,8 +753,12 @@ func load_world_room(room_id: int, spawn_pos: Vector2, preserve_status: bool = t
 	_victory_frames = 0
 	_defeat_frames = 0
 	_current_room_id = room_id
+	if Constants.WORLD_HUB_ROOM_IDS.has(room_id):
+		_current_world = room_id + 1
+	elif BOSS_ROOM_IDS.has(room_id):
+		_current_world = room_id - BOSS_ROOM_ID + 1
 	var actual_spawn: Vector2 = spawn_pos
-	if room_id == BOSS_ROOM_ID and actual_spawn == Vector2.ZERO:
+	if BOSS_ROOM_IDS.has(room_id) and actual_spawn == Vector2.ZERO:
 		actual_spawn = Vector2(48.0, 512.0)
 	_room_spawn_pos = actual_spawn
 
@@ -646,11 +780,16 @@ func load_world_room(room_id: int, spawn_pos: Vector2, preserve_status: bool = t
 		_enemies_layer.add_child(enemy)
 		_enemies.append(enemy)
 
-	if room_id == BOSS_ROOM_ID:
+	if BOSS_ROOM_IDS.has(room_id):
 		_current_state = Constants.GameState.BOSS_FIGHT
 		_boss = WhispyWoods.new()
 		_enemies_layer.add_child(_boss)
-		_boss.setup(Vector2(128.0, 544.0), _level_map)
+		var boss_y: float = float(maxi(144, _level_map.get_height_pixels() - 32))
+		_boss.setup(Vector2(128.0, minf(544.0, boss_y)), _level_map)
+		var scaled_hp: int = WhispyWoods.DEFAULT_MAX_HP + (room_id - BOSS_ROOM_ID) * 2
+		_boss.max_hp = scaled_hp
+		_boss.hp = scaled_hp
+		EventBus.boss_hp_changed.emit(room_id - BOSS_ROOM_ID + 1, _boss.hp, _boss.max_hp)
 		if ContentRegistry.has_music_track(5):
 			EventBus.bgm_requested.emit(5)
 	else:
@@ -665,7 +804,7 @@ func load_world_room(room_id: int, spawn_pos: Vector2, preserve_status: bool = t
 
 	EventBus.hp_changed.emit(_kirby.hp, _kirby.max_hp)
 	EventBus.copy_ability_changed.emit(_kirby.copy_ability)
-	EventBus.room_changed.emit(1, 1, room_id)
+	EventBus.room_changed.emit(_current_world, 1, room_id)
 	return true
 
 

@@ -10,6 +10,7 @@ const AbilitySword = preload("res://src/game/abilities/ability_sword.gd")
 const AbilityFire = preload("res://src/game/abilities/ability_fire.gd")
 const AbilitySpark = preload("res://src/game/abilities/ability_spark.gd")
 const AbilityBeam = preload("res://src/game/abilities/ability_beam.gd")
+const AbilityGeneric = preload("res://src/game/abilities/ability_generic.gd")
 
 enum State {
 	IDLE = 0,
@@ -310,6 +311,10 @@ func _ensure_ability_nodes() -> void:
 		AbilitySpark.new(),
 		AbilityBeam.new(),
 	]
+	for ab_id: int in AbilityGeneric.ABILITY_SPECS.keys():
+		var gen: AbilityGeneric = AbilityGeneric.new()
+		gen.configure_ability(ab_id)
+		list.append(gen)
 	for ab: AbilityBase in list:
 		ab.name = "Ability_%s" % ab.get_ability_name()
 		add_child(ab)

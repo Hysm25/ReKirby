@@ -58,7 +58,8 @@ const MANIFEST_PATH: String = "user://nes_data/manifest.json"
 const PALETTES_PATH: String = "user://nes_data/palettes.json"
 const WORLD1_DATA_PATH: String = "user://nes_data/world1_data.json"
 const AUDIO_DATA_PATH: String = "user://nes_data/audio_data.json"
-const EXTRACTION_FORMAT_VERSION: int = 7
+const SAVE_DATA_PATH: String = "user://save_data.json"
+const EXTRACTION_FORMAT_VERSION: int = 8
 
 # PRG-ROM MMC3 structural table locations (Kirby's Adventure USA Rev A)
 const PRG_BANK_PALETTE_TABLES: int = 0
@@ -82,6 +83,8 @@ const OAM_FLIP_H: int = 0x100
 const OAM_FLIP_V: int = 0x200
 const WORLD1_HUB_ROOM_ID: int = 0
 const WORLD2_HUB_ROOM_ID: int = 1
+const FOUNTAIN_OF_DREAMS_ROOM_ID: int = 15
+const WORLD_HUB_ROOM_IDS: Array[int] = [0, 1, 2, 3, 4, 5, 6]
 const TOTAL_ROM_ROOMS: int = 327
 const TOTAL_ROM_TILESETS: int = 49
 const METATILES_PER_TILESET: int = 256
@@ -97,6 +100,26 @@ enum CopyAbility {
 	FIRE = 2,
 	SPARK = 3,
 	BEAM = 4,
+	CUTTER = 5,
+	ICE = 6,
+	FREEZE = 7,
+	WHEEL = 8,
+	STONE = 9,
+	HAMMER = 10,
+	PARASOL = 11,
+	NEEDLE = 12,
+	TORNADO = 13,
+	HI_JUMP = 14,
+	BALL = 15,
+	FIREBALL = 16,
+	LASER = 17,
+	MIKE = 18,
+	CRASH = 19,
+	THROW = 20,
+	BACKDROP = 21,
+	LIGHT = 22,
+	UFO = 23,
+	SLEEP = 24,
 }
 
 enum GameState {
@@ -108,6 +131,7 @@ enum GameState {
 	DOOR_TRANSITION = 5,
 	BOSS_FIGHT = 6,
 	GAME_OVER = 7,
+	ENDING = 8,
 }
 
 enum NesButton {
