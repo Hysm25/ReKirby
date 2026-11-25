@@ -58,7 +58,7 @@ const MANIFEST_PATH: String = "user://nes_data/manifest.json"
 const PALETTES_PATH: String = "user://nes_data/palettes.json"
 const WORLD1_DATA_PATH: String = "user://nes_data/world1_data.json"
 const AUDIO_DATA_PATH: String = "user://nes_data/audio_data.json"
-const EXTRACTION_FORMAT_VERSION: int = 6
+const EXTRACTION_FORMAT_VERSION: int = 7
 
 # PRG-ROM MMC3 structural table locations (Kirby's Adventure USA Rev A)
 const PRG_BANK_PALETTE_TABLES: int = 0
@@ -155,6 +155,8 @@ static func map_nes_collision_to_enum(nes_collision_byte: int, raw_prop: int = -
 	var is_breakable: bool = (nes_collision_byte & 0x20) != 0
 
 	if shape == 0:
+		if (nes_collision_byte & 0x20) != 0:
+			return TileCollision.DOOR_TRANSITION
 		return TileCollision.WATER if is_water else TileCollision.AIR
 	if shape == 1:
 		return TileCollision.ONE_WAY

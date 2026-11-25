@@ -367,6 +367,26 @@ func _test_live_world1_stages_and_boss_vertical_slice() -> void:
 			game.step_gameplay_frame()
 			_assert_true(game.get_score() >= WhispyWoods.DEFEAT_SCORE + MainScript.STAGE_CLEAR_BONUS, "Collecting Goal Star Rod awards Stage Clear bonus")
 
+			# Advance victory fanfare frames and verify accurate spawn back into Hub Room 0 (456, 80)
+			for _v: int in range(MainScript.VICTORY_RETURN_FRAMES):
+				InputManager.step_frame()
+				game.step_gameplay_frame()
+			_assert_eq_int(game._current_room_id, Constants.WORLD1_HUB_ROOM_ID, "Victory returns Kirby to Hub Room 0")
+			_assert_true(absf(game._kirby.pos.x - 456.0) <= 16.0 and absf(game._kirby.pos.y - 80.0) <= 24.0, "Victory Hub spawn places Kirby at Boss door (got %.1f, %.1f)" % [game._kirby.pos.x, game._kirby.pos.y])
+			_assert_true(bool(game.get_cleared_stages().get("boss", false)), "Boss stage clear recorded")
+
+	# Verify edge auto-door transition in Stage 1-2 Room 48 (2,15,11) -> Room 49 without UP press
+	_assert_true(game.load_world_room(48, Vector2(248.0, 568.0), true), "Main loads Stage 1-2 Room 48")
+	InputManager.set_mock_mask(0)
+	game._kirby.pos = Vector2(248.0, 570.0)
+	InputManager.step_frame()
+	game.step_gameplay_frame()
+	_assert_eq_int(game._current_room_id, 49, "Touching Room 48 bottom-right edge door auto-transitions to Room 49")
+
+	# Verify Stage 1-4 Room 57..60 reachability & BGM
+	_assert_true(game.load_world_room(57, Vector2(40.0, 240.0), true), "Main loads Stage 1-4 Room 57")
+	_assert_eq_int(game._level_map.get_bgm_id(), 17, "Stage 1-4 Room 57 exposes authentic BGM ID 17")
+
 	InputManager.clear_mock_mask()
 	game._clear_room_entities()
 	game.free()

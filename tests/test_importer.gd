@@ -9,6 +9,7 @@ const HALDecompressor = preload("res://src/importer/hal_decompressor.gd")
 const CHRExtractor = preload("res://src/importer/chr_extractor.gd")
 const WorldExtractor = preload("res://src/importer/world_extractor.gd")
 const ROMImporter = preload("res://src/importer/rom_importer.gd")
+const LevelMap = preload("res://src/game/level_map.gd")
 const MAX_CLEANUP_ENTRIES: int = 2048
 
 var _passed: int = 0
@@ -63,7 +64,7 @@ func _test_constants_and_palette() -> void:
 
 func _test_collision_mapping() -> void:
 	_assert_eq_int(Constants.map_nes_collision_to_enum(0x00), Constants.TileCollision.AIR, "NES prop 0x00 maps to AIR")
-	_assert_eq_int(Constants.map_nes_collision_to_enum(0x20), Constants.TileCollision.AIR, "NES prop 0x20 maps to AIR")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x20), Constants.TileCollision.DOOR_TRANSITION, "NES prop 0x20 maps to DOOR_TRANSITION")
 	_assert_eq_int(Constants.map_nes_collision_to_enum(0x02), Constants.TileCollision.SOLID, "NES prop 0x02 maps to SOLID")
 	_assert_eq_int(Constants.map_nes_collision_to_enum(0x22), Constants.TileCollision.BREAKABLE_STAR, "NES prop 0x22 maps to BREAKABLE_STAR")
 	_assert_eq_int(Constants.map_nes_collision_to_enum(0x01), Constants.TileCollision.ONE_WAY, "NES prop 0x01 maps to ONE_WAY")
@@ -71,7 +72,8 @@ func _test_collision_mapping() -> void:
 	_assert_eq_int(Constants.map_nes_collision_to_enum(0x06), Constants.TileCollision.SLOPE_45_DOWN, "NES prop 0x06 maps to SLOPE_45_DOWN")
 	_assert_eq_int(Constants.map_nes_collision_to_enum(0x03), Constants.TileCollision.SLOPE_26_UP_L, "NES prop 0x03 maps to SLOPE_26_UP_L")
 	_assert_eq_int(Constants.map_nes_collision_to_enum(0x04), Constants.TileCollision.SLOPE_26_DOWN_L, "NES prop 0x04 maps to SLOPE_26_DOWN_L")
-	_assert_eq_int(Constants.map_nes_collision_to_enum(0xA0), Constants.TileCollision.WATER, "NES prop 0xA0 maps to WATER")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x80), Constants.TileCollision.WATER, "NES prop 0x80 maps to WATER")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0xA0), Constants.TileCollision.DOOR_TRANSITION, "NES prop 0xA0 maps to DOOR_TRANSITION")
 	_assert_eq_int(Constants.map_nes_collision_to_enum(0x0F), Constants.TileCollision.SPIKE_HAZARD, "NES prop 0x0F maps to SPIKE_HAZARD")
 
 
@@ -390,6 +392,46 @@ func _test_live_rom_ingestion_if_present() -> void:
 	if t_pal0.size() == 4:
 		_assert_eq_int(t_pal0[0], 0x30, "Title Screen universal sky color is 0x30")
 		_assert_eq_int(t_pal0[1], 0x25, "Title Screen BG0 accent color is 0x25")
+
+	# Verify Track C door collision mapping, room BGM headers & 21-room World 1 door graph reachability
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x20), Constants.TileCollision.DOOR_TRANSITION, "NES collision 0x20 maps to DOOR_TRANSITION")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0xA0), Constants.TileCollision.DOOR_TRANSITION, "Underwater door 0xA0 maps to DOOR_TRANSITION")
+	_assert_eq_int(int(r43.get("bgm_id", -1)), 0, "Room 43 header bgm_id = 0")
+	_assert_eq_int(int(ContentRegistry.get_room_data(47).get("bgm_id", -1)), 15, "Room 47 header bgm_id = 15")
+	_assert_eq_int(int(ContentRegistry.get_room_data(57).get("bgm_id", -1)), 17, "Room 57 header bgm_id = 17")
+	_assert_eq_int(int(ContentRegistry.get_room_data(0).get("bgm_id", -1)), 34, "Hub Room 0 header bgm_id = 34")
+	var w1_queue: Array[int] = [0]
+	var w1_visited: Dictionary = {}
+	var bad_door_bounds: int = 0
+	var edge_door_count: int = 0
+	while not w1_queue.is_empty():
+		var cur_rid: int = int(w1_queue.pop_front())
+		if w1_visited.has(cur_rid):
+			continue
+		w1_visited[cur_rid] = true
+		var cur_data: Dictionary = ContentRegistry.get_room_data(cur_rid)
+		for d_var: Variant in (cur_data.get("doors", []) as Array):
+			var d: Dictionary = d_var as Dictionary
+			var sp: int = int(d.get("special", 0))
+			var dst: int = int(d.get("dest_room_id", -1))
+			if String(d.get("trigger_mode", "up_press")) != "up_press":
+				edge_door_count += 1
+			if dst == Constants.WORLD2_HUB_ROOM_ID or sp == 0x1F or sp == 0x1C:
+				continue
+			if not ContentRegistry.has_room(dst):
+				bad_door_bounds += 1
+				continue
+			var dst_data: Dictionary = ContentRegistry.get_room_data(dst)
+			var dw: int = int(dst_data.get("width_metatiles", 0)) * Constants.METATILE_SIZE
+			var dh: int = int(dst_data.get("height_metatiles", 0)) * Constants.METATILE_SIZE
+			var dpx: Vector2 = LevelMap.compute_door_spawn_pixel(dst_data, d)
+			if dpx.x < 0.0 or dpx.x >= float(dw) or dpx.y < 0.0 or dpx.y > float(dh):
+				bad_door_bounds += 1
+			if not w1_visited.has(dst) and not w1_queue.has(dst):
+				w1_queue.append(dst)
+	_assert_eq_int(w1_visited.size(), 21, "All 21 World 1 rooms are reachable from Hub Room 0")
+	_assert_eq_int(bad_door_bounds, 0, "All World 1 door spawns fall cleanly inside destination room bounds")
+	_assert_true(edge_door_count >= 3, "World 1 classifies >= 3 edge auto-transition doors (got %d)" % edge_door_count)
 
 	# Clean up temporary test extraction directory
 	_cleanup_dir_recursive(test_user_dir)

@@ -262,7 +262,12 @@ static func _extract_room_palettes(
 	}
 
 
-static func _extract_room_doors(mapper: MMC3Mapper, room_id: int) -> Array[Dictionary]:
+static func _extract_room_doors(
+	mapper: MMC3Mapper,
+	room_id: int,
+	w_screens: int = 1,
+	h_screens: int = 1
+) -> Array[Dictionary]:
 	_map_r6(mapper, Constants.PRG_BANK_ROOM_TABLES)
 	var start_addr: int = mapper.read_prg_byte(B18_DOOR_PTR_LO + room_id) | (mapper.read_prg_byte(B18_DOOR_PTR_HI + room_id) << 8)
 	var end_addr: int = mapper.read_prg_byte(B18_DOOR_PTR_LO + room_id + 1) | (mapper.read_prg_byte(B18_DOOR_PTR_HI + room_id + 1) << 8)
@@ -282,15 +287,28 @@ static func _extract_room_doors(mapper: MMC3Mapper, room_id: int) -> Array[Dicti
 		var b4: int = raw[off + 4]
 		var special: int = ((b3 & 0xF0) | (b0 >> 4)) & 0x7F
 		var dest_room_id: int = (((b3 >> 7) & 0x01) << 8) | b2
+		var src_scr: int = b0 & 0x0F
+		var src_x: int = (b1 >> 4) & 0x0F
+		var src_y: int = b1 & 0x0F
+		var sx: int = src_scr % maxi(1, w_screens)
+		var sy: int = src_scr / maxi(1, w_screens)
+		var trigger_mode: String = "up_press"
+		if sy == 0 and src_y == 0:
+			trigger_mode = "edge_top"
+		elif sy == maxi(1, h_screens) - 1 and src_y == Constants.ROOM_SCREEN_ROWS - 1:
+			trigger_mode = "edge_bottom"
+		elif sx == maxi(1, w_screens) - 1 and src_x == Constants.ROOM_SCREEN_COLS - 1:
+			trigger_mode = "edge_right"
 		doors.append({
 			"special": special,
-			"src_screen": b0 & 0x0F,
-			"src_x": (b1 >> 4) & 0x0F,
-			"src_y": b1 & 0x0F,
+			"src_screen": src_scr,
+			"src_x": src_x,
+			"src_y": src_y,
 			"dest_room_id": dest_room_id,
 			"dst_screen": b3 & 0x0F,
 			"dst_x": (b4 >> 4) & 0x0F,
 			"dst_y": b4 & 0x0F,
+			"trigger_mode": trigger_mode,
 		})
 	return doors
 
@@ -381,6 +399,8 @@ static func extract_room(
 	var palette_slot: int = raw[3]
 	var sprite_chr_bank: int = raw[4]
 	var palette_set_id: int = raw[5]
+	var bgm_id: int = raw[6] & 0xFF
+	var scroll_flag: int = raw[7] & 0xFF
 	var expected_size: int = Constants.ROOM_HEADER_SIZE + w_screens * h_screens * Constants.ROOM_SCREEN_METATILES
 	if w_screens <= 0 or h_screens <= 0 or raw.size() < expected_size:
 		return {}
@@ -424,7 +444,7 @@ static func extract_room(
 		palette_set_id,
 		kirby_palette
 	)
-	var doors: Array[Dictionary] = _extract_room_doors(mapper, room_id)
+	var doors: Array[Dictionary] = _extract_room_doors(mapper, room_id, w_screens, h_screens)
 	var entities: Array[Dictionary] = _extract_room_entities(mapper, room_id)
 
 	return {
@@ -437,6 +457,8 @@ static func extract_room(
 		"chr_slot": chr_slot,
 		"palette_slot": palette_slot,
 		"palette_set_id": palette_set_id,
+		"bgm_id": bgm_id,
+		"scroll_flag": scroll_flag,
 		"sprite_chr_bank": sprite_chr_bank,
 		"bg_chr_banks": bg_chr_banks,
 		"is_checkpoint": (bank_raw & 0x80) != 0,

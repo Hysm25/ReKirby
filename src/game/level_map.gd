@@ -7,6 +7,8 @@ const Constants = preload("res://src/core/constants.gd")
 
 var _room_id: int = -1
 var _tileset_id: int = -1
+var _bgm_id: int = 0
+var _scroll_flag: int = 0
 var _width_screens: int = 0
 var _height_screens: int = 0
 var _width_metatiles: int = 0
@@ -76,6 +78,8 @@ func load_from_dicts(room_data: Dictionary, tileset_data: Dictionary) -> bool:
 
 	_room_id = int(room_data.get("room_id", -1))
 	_tileset_id = int(room_data.get("tileset_id", -1))
+	_bgm_id = int(room_data.get("bgm_id", 0))
+	_scroll_flag = int(room_data.get("scroll_flag", 0))
 	_width_screens = maxi(1, int(room_data.get("width_screens", w_mt / Constants.ROOM_SCREEN_COLS)))
 	_height_screens = maxi(1, int(room_data.get("height_screens", h_mt / Constants.ROOM_SCREEN_ROWS)))
 	_width_metatiles = w_mt
@@ -224,6 +228,14 @@ func get_room_id() -> int:
 
 func get_tileset_id() -> int:
 	return _tileset_id
+
+
+func get_bgm_id() -> int:
+	return _bgm_id
+
+
+func get_scroll_flag() -> int:
+	return _scroll_flag
 
 
 func get_width_metatiles() -> int:
@@ -428,3 +440,37 @@ func find_door_at_pixel(px: float, py: float) -> Dictionary:
 		if absf(px - door_cx) <= 10.0 and absf(py - door_cy) <= 14.0:
 			return door.duplicate(true)
 	return {}
+
+
+func find_edge_door_at_kirby(px: float, py: float, vel_y: float) -> Dictionary:
+	for door: Dictionary in _doors:
+		var mode: String = String(door.get("trigger_mode", "up_press"))
+		if mode == "up_press":
+			continue
+		var src_scr: int = int(door.get("src_screen", 0))
+		var src_x: int = int(door.get("src_x", 0))
+		var src_y: int = int(door.get("src_y", 0))
+		var top_left: Vector2 = screen_tile_to_pixel(src_scr, src_x, src_y)
+		var door_cx: float = top_left.x + 8.0
+		var door_cy: float = top_left.y + 8.0
+		if mode == "edge_top" and py <= 22.0 and vel_y <= 0.25 and absf(px - door_cx) <= 12.0:
+			return door.duplicate(true)
+		if mode == "edge_bottom" and py >= float(_height_px) - 8.0 and absf(px - door_cx) <= 12.0:
+			return door.duplicate(true)
+		if mode == "edge_right" and px >= float(_width_px) - 10.0 and absf(py - 8.0 - door_cy) <= 16.0:
+			return door.duplicate(true)
+	return {}
+
+
+static func compute_door_spawn_pixel(dst_room_data: Dictionary, door: Dictionary) -> Vector2:
+	var dst_w_scr: int = maxi(1, int(dst_room_data.get("width_screens", 1)))
+	var dst_scr: int = int(door.get("dst_screen", 0))
+	var dst_x: int = int(door.get("dst_x", 2))
+	var dst_y: int = int(door.get("dst_y", 6))
+	var sx: int = dst_scr % dst_w_scr
+	var sy: int = dst_scr / dst_w_scr
+	var spawn_px: float = float((sx * Constants.ROOM_SCREEN_COLS + dst_x) * Constants.METATILE_SIZE + 8)
+	var spawn_py: float = float((sy * Constants.ROOM_SCREEN_ROWS + dst_y + 1) * Constants.METATILE_SIZE)
+	if sy == 0 and dst_y == 0:
+		spawn_py = float(Constants.METATILE_SIZE)
+	return Vector2(spawn_px, spawn_py)

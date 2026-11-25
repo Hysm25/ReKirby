@@ -20,6 +20,7 @@ const DEFAULT_SPAWN_POS: Vector2 = Vector2(40.0, 128.0)
 const STAGE_CLEAR_BONUS: int = 2000
 const RESPAWN_DELAY_FRAMES: int = 60
 const VICTORY_RETURN_FRAMES: int = 90
+const DOOR_FADE_FRAMES: int = 8
 
 var _current_state: int = Constants.GameState.ROM_SETUP
 var _stage_root: Control = null
@@ -27,6 +28,7 @@ var _missing_rom_panel: Control = null
 var _title_screen: TitleScreen = null
 var _gameplay_panel: Control = null
 var _playfield_clip: Control = null
+var _transition_rect: ColorRect = null
 var _world_container: Node2D = null
 var _level_map: LevelMap = null
 var _enemies_layer: Node2D = null
@@ -49,6 +51,8 @@ var _lives: int = 4
 var _score: int = 0
 var _defeat_frames: int = 0
 var _victory_frames: int = 0
+var _fade_frames: int = 0
+var _cleared_stages: Dictionary = {}
 
 
 func _ready() -> void:
@@ -80,13 +84,36 @@ func step_gameplay_frame() -> void:
 	if _victory_frames > 0:
 		_victory_frames -= 1
 		if _victory_frames == 0:
-			var hub_spawn: Vector2 = _level_map.screen_tile_to_pixel(1, 12, 5) + Vector2(8.0, 0.0)
+			_cleared_stages["boss"] = true
+			var hub_data: Dictionary = ContentRegistry.get_room_data(Constants.WORLD1_HUB_ROOM_ID)
+			var hub_w_scr: int = maxi(1, int(hub_data.get("width_screens", 2)))
+			var hub_sx: int = 1 % hub_w_scr
+			var hub_sy: int = 1 / hub_w_scr
+			var hub_spawn: Vector2 = Vector2(
+				float((hub_sx * Constants.ROOM_SCREEN_COLS + 12) * Constants.METATILE_SIZE + 8),
+				float((hub_sy * Constants.ROOM_SCREEN_ROWS + 5) * Constants.METATILE_SIZE)
+			)
 			if load_world_room(Constants.WORLD1_HUB_ROOM_ID, hub_spawn, true):
 				_update_camera_scroll()
 		return
 
+	if _fade_frames > 0:
+		_fade_frames -= 1
+		if _transition_rect != null:
+			_transition_rect.color.a = float(_fade_frames) / float(DOOR_FADE_FRAMES)
+			_transition_rect.visible = _fade_frames > 0
+
 	_kirby.step_physics()
 	_spawn_projectile_list(_kirby.consume_spawned_projectiles())
+
+	if _check_door_transition():
+		return
+
+	if _kirby.state != KirbyController.State.DEFEAT and _kirby.pos.y > float(_level_map.get_height_pixels()) + 16.0:
+		_kirby.hp = 0
+		_kirby.state = KirbyController.State.DEFEAT
+		_kirby.vel = Vector2(0.0, -3.0)
+		EventBus.hp_changed.emit(_kirby.hp, _kirby.max_hp)
 
 	if _kirby.state == KirbyController.State.DEFEAT:
 		_defeat_frames += 1
@@ -110,7 +137,6 @@ func step_gameplay_frame() -> void:
 	_step_boss(kirby_rect, kirby_hitboxes)
 	_step_projectiles(kirby_rect, kirby_mouth, is_inhaling, inhale_rect)
 
-	_check_door_transition()
 	_update_camera_scroll()
 	if _hud_renderer != null:
 		_hud_renderer.refresh()
@@ -446,6 +472,15 @@ func _build_gameplay_panel() -> void:
 	_world_container.name = "WorldContainer"
 	_playfield_clip.add_child(_world_container)
 
+	_transition_rect = ColorRect.new()
+	_transition_rect.name = "DoorTransitionFade"
+	_transition_rect.color = Color(0.0, 0.0, 0.0, 0.0)
+	_transition_rect.position = Vector2.ZERO
+	_transition_rect.size = Vector2(Constants.PLAYFIELD_WIDTH, Constants.PLAYFIELD_HEIGHT)
+	_transition_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_transition_rect.visible = false
+	_playfield_clip.add_child(_transition_rect)
+
 	# Bottom 256x48 fixed Scanline IRQ Split HUD (Y=192..239)
 	_hud_renderer = HUDRenderer.new()
 	_gameplay_panel.add_child(_hud_renderer)
@@ -547,6 +582,7 @@ func start_new_game() -> bool:
 
 	_lives = 4
 	_score = 0
+	_cleared_stages.clear()
 	var start_room: int = DEFAULT_START_ROOM_ID if ContentRegistry.has_room(DEFAULT_START_ROOM_ID) else Constants.WORLD1_HUB_ROOM_ID
 	if load_world_room(start_room, DEFAULT_SPAWN_POS, false):
 		_update_camera_scroll()
@@ -583,7 +619,9 @@ func load_world_room(room_id: int, spawn_pos: Vector2, preserve_status: bool = t
 	_victory_frames = 0
 	_defeat_frames = 0
 	_current_room_id = room_id
-	var actual_spawn: Vector2 = Vector2(48.0, 512.0) if room_id == BOSS_ROOM_ID else spawn_pos
+	var actual_spawn: Vector2 = spawn_pos
+	if room_id == BOSS_ROOM_ID and actual_spawn == Vector2.ZERO:
+		actual_spawn = Vector2(48.0, 512.0)
 	_room_spawn_pos = actual_spawn
 
 	_kirby.setup(_level_map, actual_spawn, preserve_status)
@@ -614,8 +652,12 @@ func load_world_room(room_id: int, spawn_pos: Vector2, preserve_status: bool = t
 	else:
 		_current_state = Constants.GameState.PLAYING
 		EventBus.boss_hp_changed.emit(0, 0, 0)
-		if _music_player != null and _music_player.get_current_bgm_id() != 0:
-			EventBus.bgm_requested.emit(0)
+		if _music_player != null:
+			var target_bgm: int = _level_map.get_bgm_id()
+			if not ContentRegistry.has_music_track(target_bgm):
+				target_bgm = 0
+			if _music_player.get_current_bgm_id() != target_bgm:
+				EventBus.bgm_requested.emit(target_bgm)
 
 	EventBus.hp_changed.emit(_kirby.hp, _kirby.max_hp)
 	EventBus.copy_ability_changed.emit(_kirby.copy_ability)
@@ -643,31 +685,35 @@ func get_lives() -> int:
 	return _lives
 
 
-func _check_door_transition() -> void:
-	if not InputManager.is_just_pressed(Constants.NesButton.UP):
-		return
-	var door: Dictionary = _level_map.find_door_at_pixel(_kirby.pos.x, _kirby.pos.y - 8.0)
+func get_cleared_stages() -> Dictionary:
+	return _cleared_stages.duplicate()
+
+
+func _check_door_transition() -> bool:
+	var door: Dictionary = {}
+	if InputManager.is_just_pressed(Constants.NesButton.UP):
+		door = _level_map.find_door_at_pixel(_kirby.pos.x, _kirby.pos.y - 8.0)
 	if door.is_empty():
-		return
+		door = _level_map.find_edge_door_at_kirby(_kirby.pos.x, _kirby.pos.y, _kirby.vel.y)
+	if door.is_empty():
+		return false
 	var dst_room: int = int(door.get("dest_room_id", -1))
 	if not ContentRegistry.has_room(dst_room):
-		return
+		return false
 	if int(door.get("special", 0)) == 16:
+		_cleared_stages[_current_room_id] = true
 		_add_score(STAGE_CLEAR_BONUS)
 
-	var dst_scr: int = int(door.get("dst_screen", 0))
-	var dst_x: int = int(door.get("dst_x", 2))
-	var dst_y: int = int(door.get("dst_y", 6))
-
-	# Resolve target pixel using destination room dimensions
 	var dst_data: Dictionary = ContentRegistry.get_room_data(dst_room)
-	var dst_w_scr: int = maxi(1, int(dst_data.get("width_screens", 1)))
-	var sx: int = dst_scr % dst_w_scr
-	var sy: int = dst_scr / dst_w_scr
-	var spawn_px: float = float((sx * Constants.ROOM_SCREEN_COLS + dst_x) * Constants.METATILE_SIZE + 8)
-	var spawn_py: float = float((sy * Constants.ROOM_SCREEN_ROWS + dst_y + 1) * Constants.METATILE_SIZE)
-	if load_world_room(dst_room, Vector2(spawn_px, spawn_py), true):
+	var spawn_pos: Vector2 = LevelMap.compute_door_spawn_pixel(dst_data, door)
+	if load_world_room(dst_room, spawn_pos, true):
+		_fade_frames = DOOR_FADE_FRAMES
+		if _transition_rect != null:
+			_transition_rect.color.a = 1.0
+			_transition_rect.visible = true
 		_update_camera_scroll()
+		return true
+	return false
 
 
 func _update_camera_scroll() -> void:
@@ -677,6 +723,9 @@ func _update_camera_scroll() -> void:
 	var max_cam_y: float = maxf(0.0, float(_level_map.get_height_pixels() - Constants.PLAYFIELD_HEIGHT))
 	var target_x: float = clampf(_kirby.pos.x - float(Constants.PLAYFIELD_WIDTH) * 0.5, 0.0, max_cam_x)
 	var target_y: float = clampf(_kirby.pos.y - float(Constants.PLAYFIELD_HEIGHT) * 0.6, 0.0, max_cam_y)
+	if _current_room_id == BOSS_ROOM_ID and _kirby.pos.y >= 384.0:
+		target_x = 0.0
+		target_y = max_cam_y
 	_camera_offset = Vector2(roundf(target_x), roundf(target_y))
 	_world_container.position = -_camera_offset
 
