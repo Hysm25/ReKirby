@@ -1,0 +1,31 @@
+# Clean-Room Asset Boundaries (Zero Copyrighted ROMs or Extracted Dumps)
+*.nes
+*.fds
+*.rom
+*.bin
+*.sav
+rom/*.nes
+rom/*.bin
+rom/*.rom
+rom/*.fds
+rom/*.sav
+
+# Runtime Extracted Data
+extracted/
+nes_data/
+user/
+
+# Godot 4 Engine Artifacts
+.godot/
+*.import
+.mono/
+data_*/
+mono_crash.*.json
+export_presets.cfg.bak
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
