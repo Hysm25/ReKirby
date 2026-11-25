@@ -14,6 +14,7 @@ enum EnemyType {
 	HOT_HEAD = 4,
 	SPARKY = 5,
 	BRONTO_BURT = 6,
+	MID_BOSS = 7,
 }
 
 enum State {
@@ -92,8 +93,10 @@ static func map_rom_actor_id(actor_id: int) -> int:
 		# Secondary World 1-7 actors mapped cleanly to closest authentic behavior
 		19, 27, 28, 34, 43, 60:
 			return EnemyType.WADDLE_DEE
-		10, 11, 20, 22, 25, 26, 29, 30, 31, 35, 36, 37, 38, 40, 42, 45, 46, 47, 48, 54, 55, 58, 59, 61, 63, 64, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 79:
+		10, 11, 20, 22, 25, 26, 29, 30, 31, 35, 36, 37, 38, 40, 42, 45, 46, 47, 48, 54, 55, 58, 59, 61, 63, 64, 66, 67, 68, 69, 70, 71:
 			return EnemyType.WADDLE_DEE
+		72, 73, 74, 75, 76, 77, 79:
+			return EnemyType.MID_BOSS
 		23, 24, 32, 33, 44, 57, 65:
 			return EnemyType.BRONTO_BURT
 		_:
@@ -148,6 +151,20 @@ static func ability_for_actor_id(p_actor_id: int) -> int:
 			return Constants.CopyAbility.BACKDROP
 		42:
 			return Constants.CopyAbility.LIGHT
+		72:
+			return Constants.CopyAbility.CRASH
+		73:
+			return Constants.CopyAbility.ICE
+		74:
+			return Constants.CopyAbility.HAMMER
+		75:
+			return Constants.CopyAbility.BACKDROP
+		76:
+			return Constants.CopyAbility.THROW
+		77:
+			return Constants.CopyAbility.WHEEL
+		79:
+			return Constants.CopyAbility.FIRE
 		_:
 			return Constants.CopyAbility.NONE
 
@@ -167,6 +184,8 @@ static func default_ability_for_type(p_type: int) -> int:
 
 
 static func default_hp_for_type(p_type: int) -> int:
+	if p_type == EnemyType.MID_BOSS:
+		return 6
 	if p_type == EnemyType.BLADE_KNIGHT:
 		return 2
 	return 1
@@ -174,6 +193,8 @@ static func default_hp_for_type(p_type: int) -> int:
 
 static func default_score_for_type(p_type: int) -> int:
 	match p_type:
+		EnemyType.MID_BOSS:
+			return 1500
 		EnemyType.WADDLE_DEE:
 			return 200
 		EnemyType.BRONTO_BURT:
@@ -283,7 +304,7 @@ func consume_spawned_projectiles() -> Array[Dictionary]:
 
 
 func begin_inhale_pull(kirby_mouth_pos: Vector2) -> void:
-	if state == State.DEFEATED:
+	if state == State.DEFEATED or enemy_type == EnemyType.MID_BOSS:
 		return
 	state = State.BEING_INHALED
 	_attack_active_frames = 0
@@ -319,6 +340,13 @@ func take_damage(amount: int, knock_dir: int = 1) -> bool:
 	if hp <= 0:
 		state = State.DEFEATED
 		_attack_active_frames = 0
+		if enemy_type == EnemyType.MID_BOSS and copy_ability != Constants.CopyAbility.NONE:
+			_spawned_projectiles.append({
+				"kind": "ability_star",
+				"pos": pos + Vector2(0.0, -10.0),
+				"vel": Vector2(float(-facing_dir) * 1.1, -2.0),
+				"ability": copy_ability,
+			})
 		_sync_visual()
 		return true
 	vel = Vector2(float(knock_dir) * 1.3, -1.6)
@@ -356,6 +384,8 @@ func step_physics(kirby_pos: Vector2) -> void:
 			_step_sparky(kirby_pos)
 		EnemyType.BRONTO_BURT:
 			_step_bronto_burt()
+		EnemyType.MID_BOSS:
+			_step_mid_boss(kirby_pos)
 		_:
 			_step_walker(0.55)
 
@@ -364,6 +394,26 @@ func step_physics(kirby_pos: Vector2) -> void:
 
 func _step_walker(speed: float) -> void:
 	vel.x = float(facing_dir) * speed
+	_apply_ground_physics(true)
+
+
+func _step_mid_boss(kirby_pos: Vector2) -> void:
+	_attack_timer -= 1
+	if on_ground:
+		if _attack_timer <= 0:
+			facing_dir = 1 if kirby_pos.x >= pos.x else -1
+			_attack_timer = 72
+			vel.x = float(facing_dir) * 1.55
+			vel.y = -2.8
+			on_ground = false
+			if copy_ability != Constants.CopyAbility.NONE:
+				_spawned_projectiles.append({
+					"kind": "apple",
+					"pos": pos + Vector2(float(facing_dir) * 12.0, -12.0),
+					"vel": Vector2(float(facing_dir) * 1.4, -1.2),
+				})
+		else:
+			vel.x = float(facing_dir) * 0.8
 	_apply_ground_physics(true)
 
 

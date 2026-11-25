@@ -12,6 +12,7 @@ const MusicPlayer = preload("res://src/audio/music_player.gd")
 const EnemyBase = preload("res://src/game/entities/enemy_base.gd")
 const StarProjectile = preload("res://src/game/entities/star_projectile.gd")
 const WhispyWoods = preload("res://src/game/entities/whispy_woods.gd")
+const BossController = preload("res://src/game/entities/boss_controller.gd")
 const TitleScreen = preload("res://src/game/title_screen.gd")
 const SaveManager = preload("res://src/core/save_manager.gd")
 
@@ -54,7 +55,7 @@ var _camera_offset: Vector2 = Vector2.ZERO
 
 var _enemies: Array[EnemyBase] = []
 var _projectiles: Array[StarProjectile] = []
-var _boss: WhispyWoods = null
+var _boss: Node2D = null
 
 var _current_room_id: int = DEFAULT_START_ROOM_ID
 var _room_spawn_pos: Vector2 = DEFAULT_SPAWN_POS
@@ -195,6 +196,7 @@ func step_gameplay_frame() -> void:
 
 	_update_camera_scroll()
 	if _hud_renderer != null:
+		_hud_renderer.step_frame()
 		_hud_renderer.refresh()
 
 
@@ -251,6 +253,7 @@ func _step_enemies(
 				var dmg: int = int(hb.get("damage", 1))
 				var kdir: int = 1 if enemy.pos.x >= _kirby.pos.x else -1
 				if enemy.take_damage(dmg, kdir):
+					_spawn_projectile_list(enemy.consume_spawned_projectiles())
 					if not enemy.is_alive():
 						_add_score(enemy.score_value)
 						break
@@ -304,7 +307,7 @@ func _step_boss(kirby_rect: Rect2, kirby_hitboxes: Array[Dictionary]) -> void:
 				_spawn_projectile_list(_boss.consume_spawned_projectiles())
 				break
 
-	if not _boss.is_defeated() and _boss.phase != WhispyWoods.Phase.INTRO and boss_rect.intersects(kirby_rect):
+	if not _boss.is_defeated() and int(_boss.get("phase")) != 0 and boss_rect.intersects(kirby_rect):
 		var knock_dir: int = -1 if _kirby.pos.x <= _boss.pos.x else 1
 		_kirby.take_damage(1, knock_dir)
 
@@ -780,16 +783,22 @@ func load_world_room(room_id: int, spawn_pos: Vector2, preserve_status: bool = t
 		_enemies_layer.add_child(enemy)
 		_enemies.append(enemy)
 
-	if BOSS_ROOM_IDS.has(room_id):
+	var is_boss_arena: bool = BOSS_ROOM_IDS.has(room_id) or room_id in [8, 9, 10, 11, 12, 14, 15]
+	if room_id == BOSS_ROOM_ID:
 		_current_state = Constants.GameState.BOSS_FIGHT
-		_boss = WhispyWoods.new()
-		_enemies_layer.add_child(_boss)
-		var boss_y: float = float(maxi(144, _level_map.get_height_pixels() - 32))
-		_boss.setup(Vector2(128.0, minf(544.0, boss_y)), _level_map)
-		var scaled_hp: int = WhispyWoods.DEFAULT_MAX_HP + (room_id - BOSS_ROOM_ID) * 2
-		_boss.max_hp = scaled_hp
-		_boss.hp = scaled_hp
-		EventBus.boss_hp_changed.emit(room_id - BOSS_ROOM_ID + 1, _boss.hp, _boss.max_hp)
+		var whispy: WhispyWoods = WhispyWoods.new()
+		_boss = whispy
+		_enemies_layer.add_child(whispy)
+		whispy.setup(Vector2(128.0, 544.0), _level_map)
+		if ContentRegistry.has_music_track(5):
+			EventBus.bgm_requested.emit(5)
+	elif is_boss_arena:
+		_current_state = Constants.GameState.BOSS_FIGHT
+		var bc: BossController = BossController.new()
+		_boss = bc
+		_enemies_layer.add_child(bc)
+		var boss_y: float = float(clampi(_level_map.get_height_pixels() - 32, 144, 544))
+		bc.setup_for_room(room_id, Vector2(180.0, boss_y), _level_map)
 		if ContentRegistry.has_music_track(5):
 			EventBus.bgm_requested.emit(5)
 	else:
@@ -816,7 +825,7 @@ func get_projectiles() -> Array[StarProjectile]:
 	return _projectiles
 
 
-func get_boss() -> WhispyWoods:
+func get_boss() -> Node2D:
 	return _boss
 
 

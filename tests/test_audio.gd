@@ -242,9 +242,11 @@ func _test_live_rom_audio_extraction_and_music_player() -> void:
 	_assert_true(peak_bgm > 0.02 and peak_bgm <= 1.0, "ROM Track 0 drives audible non-clipping 2A03 output (peak=%.4f)" % peak_bgm)
 	_assert_true(min_note_period >= 45, "ROM Track 0 plays musical periods without ultrasonic whine (min_period=%d)" % min_note_period)
 
-	# Verify 5-bit signed note offset decoding (0x19 -> -7, NOT +25)
+	# Verify 5-bit signed note offset decoding (0x19 -> -7, NOT +25) & 0xF7 Vibrato LFO
 	_assert_eq_int(MusicPlayer.decode_signed_5bit_note_offset(0x19), -7, "5-bit signed note offset 0x19 decodes to -7")
 	_assert_eq_int(MusicPlayer.decode_signed_5bit_note_offset(0x05), 5, "5-bit signed note offset 0x05 decodes to +5")
+	_assert_eq_int(MusicPlayer.compute_vibrato_delta(0, 2), 0, "Vibrato ID 0 returns zero pitch offset")
+	_assert_true(MusicPlayer.compute_vibrato_delta(2, 2) > 0 and MusicPlayer.compute_vibrato_delta(2, 6) < 0, "0xF7 vibrato LFO oscillates symmetrically +/- period units")
 
 	# Trigger SFX override via EventBus and verify 0xE3 pitch sweep + BGM restoration afterward
 	EventBus.sfx_requested.emit(Constants.NesSfx.STAR_SPIT)

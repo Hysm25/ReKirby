@@ -783,6 +783,37 @@ func _test_live_rom_stage_1_1_if_present() -> void:
 				if img_boss.get_pixel(hx, hy) != img_hub.get_pixel(hx, hy):
 					hub_diff_px += 1
 		_assert_true(hub_diff_px > 200, "Hub HUD switches cleanly to Bank 19 $AED5 nametable (%d diff px)" % hub_diff_px)
+
+		# Verify continuous R2 HP pip animation cycle via HUDRenderer.step_frame()
+		var tick_before: int = hud._anim_tick
+		for _t: int in range(8):
+			hud.step_frame()
+		_assert_eq_int(hud._anim_tick, tick_before + 8, "HUDRenderer.step_frame advances continuous R2 animation counter at 60 TPS")
+
+	# Verify Copy Hat overlay compositing (B26 $8EE6) on KirbyController
+	kirby.setup(lvl, Vector2(64.0, 144.0))
+	kirby.equip_copy_ability(Constants.CopyAbility.SWORD)
+	kirby._apply_kirby_anim_texture("idle_0")
+	var hat_spr: Sprite2D = kirby.get_hat_sprite()
+	_assert_true(hat_spr != null and hat_spr.visible and hat_spr.texture != null, "Copy Hat overlay composited cleanly for SWORD")
+	kirby.equip_copy_ability(Constants.CopyAbility.NONE)
+	kirby._apply_kirby_anim_texture("idle_0")
+	_assert_true(hat_spr != null and not hat_spr.visible, "Copy Hat overlay hides when CopyAbility is NONE")
+
+	# Verify Mid-Boss EnemyBase behavior (actor_id 73 = Mr. Frosty -> ICE, 6 HP, inhale resistance + Ability Star drop)
+	var mid_boss: EnemyBase = EnemyBase.new()
+	mid_boss.setup(EnemyBase.map_rom_actor_id(73), Vector2(120.0, 144.0), lvl, -1, 154, 73)
+	_assert_eq_int(mid_boss.enemy_type, EnemyBase.EnemyType.MID_BOSS, "Actor 73 maps to EnemyType.MID_BOSS")
+	_assert_eq_int(mid_boss.copy_ability, Constants.CopyAbility.ICE, "Mid-Boss Actor 73 carries ICE ability")
+	_assert_eq_int(mid_boss.hp, 6, "Mid-Boss initializes with 6 HP")
+	mid_boss.begin_inhale_pull(Vector2(100.0, 136.0))
+	_assert_eq_int(mid_boss.state, EnemyBase.State.ACTIVE, "Mid-Boss resists direct inhale while alive")
+	mid_boss.take_damage(6, 1)
+	_assert_true(not mid_boss.is_alive(), "Mid-Boss is defeated at 0 HP")
+	var drop_list: Array[Dictionary] = mid_boss.consume_spawned_projectiles()
+	_assert_true(not drop_list.is_empty() and String(drop_list[0].get("kind", "")) == "ability_star", "Defeated Mid-Boss drops inhalable ability_star")
+	mid_boss.free()
+
 	hud.free()
 
 	InputManager.clear_mock_mask()

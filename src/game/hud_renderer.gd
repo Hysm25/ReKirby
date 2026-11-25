@@ -129,6 +129,13 @@ func is_dirty() -> bool:
 	return _dirty
 
 
+func step_frame() -> void:
+	_anim_tick += 1
+	if (_anim_tick & 7) == 0:
+		_dirty = true
+		refresh()
+
+
 func refresh() -> void:
 	if not _dirty:
 		return

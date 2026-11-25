@@ -43,6 +43,7 @@ class ChannelRunner extends RefCounted:
 	var base_note: int = 0
 	var detune: int = 0
 	var vibrato_id: int = 0
+	var vibrato_tick: int = 0
 	var last_period: int = 0
 	var is_rested: bool = true
 	var dmc_addr_reg: int = 240
@@ -70,6 +71,7 @@ class ChannelRunner extends RefCounted:
 		base_note = 0
 		detune = 0
 		vibrato_id = 0
+		vibrato_tick = 0
 		last_period = 0
 		is_rested = true
 		loop_stack.clear()
@@ -300,7 +302,7 @@ func _step_runner(ch: ChannelRunner, output_to_apu: bool) -> void:
 	if not ch.active:
 		return
 
-	# Step note gate & envelope while waiting out current note duration
+	# Step note gate, envelope & vibrato LFO while waiting out current note duration
 	if ch.delay_frames > 1:
 		ch.delay_frames -= 1
 		if ch.gate_frames > 0:
@@ -308,6 +310,12 @@ func _step_runner(ch: ChannelRunner, output_to_apu: bool) -> void:
 			if ch.gate_frames == 0:
 				_trigger_release_envelope(ch, output_to_apu)
 		_step_envelope(ch, output_to_apu)
+		ch.vibrato_tick += 1
+		if ch.vibrato_id > 0 and ch.hw_ch < 3 and not ch.is_rested and ch.last_period > 0:
+			var vib_delta: int = compute_vibrato_delta(ch.vibrato_id, ch.vibrato_tick)
+			var mod_period: int = clampi(ch.last_period + vib_delta, 8, 0x7FF)
+			if output_to_apu:
+				_write_channel_period_only(ch, mod_period)
 		return
 
 	var ops: int = 0
@@ -570,6 +578,7 @@ func _handle_note_byte(ch: ChannelRunner, stream: Array, b: int, output_to_apu: 
 		return
 
 	ch.is_rested = false
+	ch.vibrato_tick = 0
 	_start_attack_envelope(ch)
 	if _period_table.is_empty():
 		return
@@ -649,6 +658,20 @@ func _silence_channel(hw_ch: int) -> void:
 		_apu.write_register(0x400B, 0x00)
 	elif hw_ch == 3:
 		_apu.write_register(0x400C, 0x30)
+
+
+static func compute_vibrato_delta(vibrato_id: int, tick: int) -> int:
+	if vibrato_id <= 0:
+		return 0
+	var amp: int = clampi(vibrato_id & 0x07, 1, 4)
+	var step: int = (tick >> 1) & 0x03
+	match step:
+		1:
+			return amp
+		3:
+			return -amp
+		_:
+			return 0
 
 
 func _on_bgm_requested(track_id: int) -> void:

@@ -94,6 +94,7 @@ var _inhaling: bool = false
 var _level_map: LevelMap = null
 var _spawned_projectiles: Array[Dictionary] = []
 var _sprite: Sprite2D = null
+var _hat_sprite: Sprite2D = null
 var _anim_frame: int = 0
 var _current_anim_key: String = "idle_0"
 var _last_tex_facing: int = 1
@@ -114,7 +115,18 @@ func _ensure_visual_sprite() -> void:
 		_sprite.position = Vector2(-8.0, -16.0)
 		_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		add_child(_sprite)
+	if _hat_sprite == null:
+		_hat_sprite = Sprite2D.new()
+		_hat_sprite.name = "KirbyCopyHatSprite"
+		_hat_sprite.centered = false
+		_hat_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		_hat_sprite.visible = false
+		add_child(_hat_sprite)
 	_apply_kirby_anim_texture("idle_0")
+
+
+func get_hat_sprite() -> Sprite2D:
+	return _hat_sprite
 
 
 func _get_kirby_rom_frame_ref(anim_key: String) -> Dictionary:
@@ -243,6 +255,7 @@ func _apply_kirby_anim_texture(anim_key: String) -> void:
 		if not built.is_empty():
 			_sprite.texture = built["texture"] as ImageTexture
 			_sprite.position = built["offset"] as Vector2
+			_sync_copy_hat_overlay(anim_key, pals)
 			return
 	var fallback_tex: ImageTexture = ContentRegistry.build_rom_oam_8x16(
 		Constants.CHR_BANK_KIRBY_DEFAULT,
@@ -261,6 +274,60 @@ func _apply_kirby_anim_texture(anim_key: String) -> void:
 
 func get_current_anim_key() -> String:
 	return _current_anim_key
+
+
+func _sync_copy_hat_overlay(anim_key: String, pals: Array[PackedColorArray]) -> void:
+	if _hat_sprite == null:
+		return
+	var show_hat: bool = (
+		copy_ability != Constants.CopyAbility.NONE
+		and not has_cargo
+		and tbl_shows_hat(anim_key)
+	)
+	if not show_hat:
+		_hat_sprite.visible = false
+		return
+	var dir_off: int = 0 if facing_dir >= 0 else 1
+	var hat_base: int = _map_ability_to_hat_pair(copy_ability)
+	var walk_step: int = 2 if (anim_key == "walk_1" or anim_key == "walk_3") else 0
+	var hat_idx: int = hat_base + walk_step + dir_off
+	var hat_spec: Dictionary = ContentRegistry.get_kirby_metasprite_frame("hat_walk", hat_idx)
+	if hat_spec.is_empty():
+		hat_spec = ContentRegistry.get_kirby_metasprite_frame("hat_walk", dir_off)
+	if hat_spec.is_empty():
+		_hat_sprite.visible = false
+		return
+	var hat_built: Dictionary = ContentRegistry.build_rom_metasprite(
+		hat_spec,
+		pals,
+		Constants.CHR_BANK_ABILITY_KIRBY,
+		154,
+		Constants.CHR_BANK_STAR_EFFECTS
+	)
+	if hat_built.is_empty():
+		_hat_sprite.visible = false
+		return
+	_hat_sprite.texture = hat_built["texture"] as ImageTexture
+	_hat_sprite.position = (hat_built["offset"] as Vector2) + (Vector2(0.0, 4.0) if anim_key == "crouch" else Vector2.ZERO)
+	_hat_sprite.visible = true
+
+
+static func tbl_shows_hat(anim_key: String) -> bool:
+	return anim_key in ["idle_0", "idle_blink", "walk_0", "walk_1", "walk_2", "walk_3", "crouch", "jump_flip", "fall"]
+
+
+static func _map_ability_to_hat_pair(ability: int) -> int:
+	match ability:
+		Constants.CopyAbility.SWORD:
+			return 0
+		Constants.CopyAbility.FIRE, Constants.CopyAbility.FIREBALL:
+			return 2
+		Constants.CopyAbility.ICE, Constants.CopyAbility.FREEZE:
+			return 6
+		Constants.CopyAbility.WHEEL, Constants.CopyAbility.TORNADO, Constants.CopyAbility.UFO:
+			return 10
+		_:
+			return 0
 
 
 func get_anim_frame() -> int:

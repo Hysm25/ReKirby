@@ -9,6 +9,8 @@ const KirbyController = preload("res://src/game/kirby_controller.gd")
 const EnemyBase = preload("res://src/game/entities/enemy_base.gd")
 const StarProjectile = preload("res://src/game/entities/star_projectile.gd")
 const WhispyWoods = preload("res://src/game/entities/whispy_woods.gd")
+const BossController = preload("res://src/game/entities/boss_controller.gd")
+const SaveManager = preload("res://src/core/save_manager.gd")
 const HUDRenderer = preload("res://src/game/hud_renderer.gd")
 const MainScript = preload("res://src/main.gd")
 const ROMImporter = preload("res://src/importer/rom_importer.gd")
@@ -340,7 +342,7 @@ func _test_live_world1_stages_and_boss_vertical_slice() -> void:
 		InputManager.step_frame()
 		game.step_gameplay_frame()
 
-	var boss: WhispyWoods = game.get_boss()
+	var boss: WhispyWoods = game.get_boss() as WhispyWoods
 	_assert_true(boss != null and boss.phase != WhispyWoods.Phase.INTRO, "Whispy Woods advances out of INTRO at 60 TPS")
 	if boss != null:
 		boss.hp = 2
@@ -408,19 +410,32 @@ func _test_live_world1_stages_and_boss_vertical_slice() -> void:
 	_assert_eq_int(EnemyBase.ability_for_actor_id(34), Constants.CopyAbility.HAMMER, "Actor 34 maps to HAMMER")
 
 	# Verify 3-slot SaveManager persistence
-	var SaveMgr = preload("res://src/core/save_manager.gd")
 	var test_save_path: String = "user://save_data_test.json"
 	if FileAccess.file_exists(test_save_path):
 		DirAccess.remove_absolute(test_save_path)
-	var empty_slots: Array[Dictionary] = SaveMgr.load_all_slots(test_save_path)
+	var empty_slots: Array[Dictionary] = SaveManager.load_all_slots(test_save_path)
 	_assert_eq_int(empty_slots.size(), 3, "SaveManager provides 3 save slots")
-	var saved_slot: Dictionary = SaveMgr.record_world_clear(0, 3, 12500, 5, Constants.CopyAbility.HAMMER, test_save_path)
+	var saved_slot: Dictionary = SaveManager.record_world_clear(0, 3, 12500, 5, Constants.CopyAbility.HAMMER, test_save_path)
 	_assert_true(bool(saved_slot.get("occupied", false)), "SaveManager marks cleared slot occupied")
 	_assert_eq_int(int(saved_slot.get("unlocked_world", 1)), 4, "Clearing World 3 unlocks World 4")
-	var reloaded_slots: Array[Dictionary] = SaveMgr.load_all_slots(test_save_path)
+	var reloaded_slots: Array[Dictionary] = SaveManager.load_all_slots(test_save_path)
 	_assert_eq_int(int(reloaded_slots[0].get("score", 0)), 12500, "SaveManager persists score across reload")
 	if FileAccess.file_exists(test_save_path):
 		DirAccess.remove_absolute(test_save_path)
+
+	# Verify distinct World 2-7 & Final Boss encounters (Paint Roller R31, Kracko R10, King Dedede R14, Nightmare R15)
+	for boss_room: int in [31, 10, 14, 15]:
+		_assert_true(game.load_world_room(boss_room, Vector2(48.0, 144.0), true), "Main loads Boss Arena Room %d" % boss_room)
+		_assert_eq_int(game.get_current_state(), Constants.GameState.BOSS_FIGHT, "Room %d enters BOSS_FIGHT state" % boss_room)
+		var bc: Node2D = game.get_boss()
+		_assert_true(bc != null and bc is BossController, "Room %d spawns BossController" % boss_room)
+		if bc is BossController:
+			_assert_true((bc as BossController)._tex_a != null, "Room %d BossController builds ROM metasprite texture cleanly" % boss_room)
+		for _step: int in range(32):
+			InputManager.step_frame()
+			game.step_gameplay_frame()
+		if bc != null:
+			_assert_true(int(bc.get("phase")) != 0, "Room %d Boss advances out of INTRO at 60 TPS" % boss_room)
 
 	InputManager.clear_mock_mask()
 	game._clear_room_entities()

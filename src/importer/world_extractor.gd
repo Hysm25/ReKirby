@@ -620,7 +620,7 @@ static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
 		result.tilesets[ts_id] = ts_data
 
 	var actor_id_list: Array[int] = []
-	for core_aid: int in [5, 6, 14, 15, 16, 17, 18, 41, 56]:
+	for core_aid: int in [5, 6, 14, 15, 16, 17, 18, 41, 56, 61, 63, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 79]:
 		seen_actors[core_aid] = true
 	for aid_key: Variant in seen_actors.keys():
 		actor_id_list.append(int(aid_key))
@@ -722,7 +722,7 @@ static func _extract_actor_metasprite_entry(mapper: MMC3Mapper, actor_id: int) -
 		return {}
 
 	_map_r7(mapper, sc_bank)
-	var scan_len: int = mini(160, 0xC000 - sc_addr - 4)
+	var scan_len: int = mini(224, 0xC000 - sc_addr - 4)
 	var slice: PackedByteArray = mapper.read_prg_slice(sc_addr, scan_len)
 	for i: int in range(maxi(0, slice.size() - 4)):
 		if slice[i] == 0x1A:
