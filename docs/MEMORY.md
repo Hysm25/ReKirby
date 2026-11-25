@@ -70,3 +70,11 @@ updated: 2026-11-25
   - **Environment Quirk Solved**: Headless `godot` on a fresh `.godot/` folder lacks `.godot/global_script_class_cache.cfg`, causing `class_name` identifiers to fail parsing. Solved by adding explicit `const X = preload("res://...")` references in every script alongside `class_name` and running `SceneTree` tests from `_initialize()`.
   - Added `MAX_ITERATIONS` / directory entry bounds to `while` loops in `hal_decompressor.gd`, `rom_importer.gd`, and `test_importer.gd`.
   - Verified with `timeout 15s godot --headless --path . --quit-after 5` and `timeout 15s godot --headless -s tests/test_runner.gd` (100% pass, including live ROM extraction and `user://nes_data/` reload).
+- **[2026-11-25] Repository README & Session Handoff Protocol**:
+  - Created root `README.md` documenting clean-room philosophy, `fish` ROM setup into `rom/`, CachyOS/EndeavourOS and Termux Fedora PRoot run/test commands, and Vertical Slice roadmap links.
+  - Added mandatory **Session Handoff Protocol** to `AGENTS.md` and `Exact Next Step` tracking to `docs/MEMORY.md`.
+  - **File State**: `project.godot`, `.gitignore`, `AGENTS.md`, `README.md`, `rom/.gitkeep`, `src/core/` (`constants.gd`, `event_bus.gd`, `content_registry.gd`, `input_manager.gd`), `src/importer/` (`rom_validator.gd`, `mmc3_mapper.gd`, `hal_decompressor.gd`, `chr_extractor.gd`, `rom_importer.gd`), `src/main.gd`, `src/main.tscn`, `tests/test_runner.gd`, `tests/test_importer.gd`.
+  - **Latest Verified Test Result**: `godot --headless --path . --quit-after 5` (exit 0) and `godot --headless -s tests/test_runner.gd` (`tests/test_importer.gd`: `passed=53 failed=0`).
+
+## 5. Exact Next Step
+- **Phase 1.5 — PRG-ROM Table & Level Stream Mapping**: Locate and verify World 1 (Vegetable Valley) PRG-ROM pointers via `MMC3Mapper` + `HALDecompressor` (16x16 metatile definitions, room layout streams, and room/sprite palettes), extend `ROMImporter` & `ContentRegistry` to cache extracted World 1 room/metatile tables under `user://nes_data/`, and verify in `tests/test_importer.gd` before moving to Phase 2 physics.

@@ -17,6 +17,15 @@ Before beginning any task, read these workspace context files in order:
 
 ---
 
+## 1.5 Session Handoff Protocol (Mandatory)
+1. **Start of Every New Session**:
+   - Read `AGENTS.md`, `docs/STATUS.md`, and `docs/MEMORY.md` first (along with the full context hierarchy) so work resumes seamlessly from the recorded state without asking the user to re-explain past progress.
+2. **End of Every Turn / Milestone (Before Committing & Pushing)**:
+   - Update `docs/STATUS.md` to reflect completed vs. pending checklist items accurately.
+   - Update `docs/MEMORY.md` (`Active Session Log` and `Exact Next Step`) with exact modified/created file paths, verified test counts/commands, and the single next concrete task so the user can safely close and reopen sessions at any time without losing context.
+
+---
+
 ## 2. Coding & Clean-Room Invariants
 1. **Strictly Typed GDScript**:
    - Every variable, constant, parameter, and return type must declare explicit static types (`var hp: int = 6`, `func step(delta: float) -> void:`). Untyped GDScript is prohibited.
