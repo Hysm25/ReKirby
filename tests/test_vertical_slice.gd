@@ -6,11 +6,14 @@ extends RefCounted
 const Constants = preload("res://src/core/constants.gd")
 const LevelMap = preload("res://src/game/level_map.gd")
 const KirbyController = preload("res://src/game/kirby_controller.gd")
+const AbilityBase = preload("res://src/game/abilities/ability_base.gd")
 const EnemyBase = preload("res://src/game/entities/enemy_base.gd")
 const StarProjectile = preload("res://src/game/entities/star_projectile.gd")
 const WhispyWoods = preload("res://src/game/entities/whispy_woods.gd")
 const BossController = preload("res://src/game/entities/boss_controller.gd")
 const SaveManager = preload("res://src/core/save_manager.gd")
+const FileSelectScreen = preload("res://src/game/file_select_screen.gd")
+const SubgameOverlay = preload("res://src/game/subgame_overlay.gd")
 const HUDRenderer = preload("res://src/game/hud_renderer.gd")
 const MainScript = preload("res://src/main.gd")
 const ROMImporter = preload("res://src/importer/rom_importer.gd")
@@ -307,7 +310,12 @@ func _test_live_world1_stages_and_boss_vertical_slice() -> void:
 
 	InputManager.set_mock_mask(Constants.NesButton.START)
 	game._physics_process(1.0 / 60.0)
-	_assert_eq_int(game._current_state, Constants.GameState.PLAYING, "Pressing START transitions TitleScreen -> PLAYING")
+	_assert_eq_int(game._current_state, Constants.GameState.FILE_SELECT, "Pressing START on TitleScreen enters FILE_SELECT")
+	InputManager.set_mock_mask(0)
+	game._physics_process(1.0 / 60.0)
+	InputManager.set_mock_mask(Constants.NesButton.START)
+	game._physics_process(1.0 / 60.0)
+	_assert_eq_int(game._current_state, Constants.GameState.PLAYING, "Confirming File Slot transitions FILE_SELECT -> PLAYING")
 	_assert_eq_int(game._current_room_id, 43, "New game starts in Stage 1-1 Room 43")
 	InputManager.set_mock_mask(0)
 	InputManager.step_frame()
@@ -436,6 +444,74 @@ func _test_live_world1_stages_and_boss_vertical_slice() -> void:
 			game.step_gameplay_frame()
 		if bc != null:
 			_assert_true(int(bc.get("phase")) != 0, "Room %d Boss advances out of INTRO at 60 TPS" % boss_room)
+
+	# Verify FileSelectScreen 3-slot navigation -> game launch
+	game.enter_file_select_state()
+	_assert_eq_int(game.get_current_state(), Constants.GameState.FILE_SELECT, "enter_file_select_state enters FILE_SELECT")
+	_assert_true(game._file_select_screen != null, "FileSelectScreen is instantiated cleanly")
+	if game._file_select_screen != null:
+		InputManager.set_mock_mask(Constants.NesButton.DOWN)
+		InputManager.step_frame()
+		game._file_select_screen.step_frame(test_save_path)
+		_assert_eq_int(game._file_select_screen.selected_slot, 1, "DOWN selects File Slot 2 (index 1)")
+		InputManager.set_mock_mask(Constants.NesButton.START)
+		InputManager.step_frame()
+		var chosen: int = game._file_select_screen.step_frame(test_save_path)
+		_assert_eq_int(chosen, 1, "START confirms File Slot 2 and emits launch")
+		if FileAccess.file_exists(test_save_path):
+			DirAccess.remove_absolute(test_save_path)
+
+	# Verify Hub Cleared-Door Star Badges + Museum R24 Copy Pedestal (actor 10 subtype 4 = SWORD)
+	game._cleared_stages["boss_1"] = true
+	_assert_true(game.load_world_room(0, Vector2(40.0, 128.0), true), "Main loads Hub Room 0 for star badge check")
+	_assert_true(game.get_hub_star_badges().size() >= 1, "Hub Room 0 spawns ROM Star badges above cleared Boss doors")
+	_assert_true(game.load_world_room(24, Vector2(40.0, 128.0), true), "Main loads World 1 Museum Room 24")
+	var museum_enemies: Array[EnemyBase] = game.get_enemies()
+	_assert_true(museum_enemies.size() == 1 and museum_enemies[0].copy_ability == Constants.CopyAbility.SWORD, "Museum Room 24 spawns SWORD Copy Pedestal (actor 10, subtype 4)")
+
+	# Verify Warp Star Ride Cutscene on World 1 Hub -> World 2 Hub gate (sp == 0x1F at screen=1, x=11, y=9 -> 440, 159)
+	_assert_true(game.load_world_room(0, Vector2(440.0, 159.0), true), "Main reloads Hub Room 0 at World 2 Warp Gate")
+	game._kirby.pos = Vector2(440.0, 159.0)
+	InputManager.set_mock_mask(Constants.NesButton.UP)
+	InputManager.step_frame()
+	game.step_gameplay_frame()
+	_assert_true(game._warp_star_frames > 0, "World Gate UP press starts 60 TPS Warp Star Cutscene")
+	InputManager.set_mock_mask(0)
+	for _w: int in range(MainScript.WARP_STAR_FRAMES):
+		InputManager.step_frame()
+		game.step_gameplay_frame()
+	_assert_eq_int(game._current_room_id, 1, "Warp Star Cutscene lands Kirby cleanly in World 2 Hub (Room 1)")
+
+	# Verify Playable Quick Draw Sub-Game (0x1C) at 60 TPS
+	var score_before_sg: int = game.get_score()
+	var lives_before_sg: int = game.get_lives()
+	_assert_true(game.start_subgame(SubgameOverlay.SubgameKind.QUICK_DRAW), "Main launches Quick Draw Sub-Game (0x1C)")
+	_assert_eq_int(game.get_current_state(), Constants.GameState.SUBGAME, "State switches to GameState.SUBGAME")
+	for _sg_f: int in range(48):
+		InputManager.set_mock_mask(Constants.NesButton.A if _sg_f == 45 else 0)
+		InputManager.step_frame()
+		if game._subgame_overlay != null:
+			game._subgame_overlay.step_frame()
+	for _sg_end: int in range(40):
+		InputManager.set_mock_mask(0)
+		InputManager.step_frame()
+		if game._subgame_overlay != null:
+			game._subgame_overlay.step_frame()
+	_assert_eq_int(game.get_current_state(), Constants.GameState.PLAYING, "Quick Draw returns cleanly to PLAYING after completion")
+	_assert_true(game.get_score() >= score_before_sg + 1000, "Winning Quick Draw awards +1000 bonus points")
+	_assert_eq_int(game.get_lives(), lives_before_sg + 1, "Winning Quick Draw awards +1UP")
+
+	# Verify AbilityGeneric uses ROM metasprite effect textures on sync_visuals()
+	game.load_world_room(43, Vector2(64.0, 144.0), false)
+	game._kirby.equip_copy_ability(Constants.CopyAbility.TORNADO)
+	InputManager.set_mock_mask(0)
+	InputManager.step_frame()
+	game._kirby.step_physics()
+	InputManager.set_mock_mask(Constants.NesButton.B)
+	InputManager.step_frame()
+	game._kirby.step_physics()
+	var tornado_ab: AbilityBase = game._kirby.get_active_ability()
+	_assert_true(tornado_ab != null and not tornado_ab._sprites.is_empty() and tornado_ab._sprites[0].texture != null, "AbilityGeneric TORNADO renders ROM metasprite effect texture")
 
 	InputManager.clear_mock_mask()
 	game._clear_room_entities()

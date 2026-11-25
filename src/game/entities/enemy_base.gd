@@ -227,17 +227,56 @@ static func default_actor_id_for_type(p_type: int) -> int:
 			return 14
 
 
+static func map_museum_card_to_ability(card_idx: int) -> int:
+	match card_idx:
+		1:
+			return Constants.CopyAbility.FIRE
+		2:
+			return Constants.CopyAbility.SPARK
+		3:
+			return Constants.CopyAbility.CUTTER
+		4:
+			return Constants.CopyAbility.SWORD
+		5:
+			return Constants.CopyAbility.FIREBALL
+		6:
+			return Constants.CopyAbility.LASER
+		7:
+			return Constants.CopyAbility.MIKE
+		8:
+			return Constants.CopyAbility.WHEEL
+		9:
+			return Constants.CopyAbility.HAMMER
+		10:
+			return Constants.CopyAbility.PARASOL
+		12:
+			return Constants.CopyAbility.NEEDLE
+		13:
+			return Constants.CopyAbility.ICE
+		14:
+			return Constants.CopyAbility.FREEZE
+		15:
+			return Constants.CopyAbility.HI_JUMP
+		16:
+			return Constants.CopyAbility.BEAM
+		17:
+			return Constants.CopyAbility.STONE
+		_:
+			return Constants.CopyAbility.NONE
+
+
 func setup(
 	p_type: int,
 	spawn_pos: Vector2,
 	level_map: LevelMap,
 	p_facing_dir: int = -1,
 	room_sprite_bank: int = 154,
-	p_actor_id: int = -1
+	p_actor_id: int = -1,
+	p_subtype: int = 0
 ) -> void:
 	enemy_type = p_type
 	actor_id = p_actor_id if p_actor_id >= 0 else default_actor_id_for_type(p_type)
-	var actor_ab: int = ability_for_actor_id(actor_id)
+	var actor_ab: int = map_museum_card_to_ability(p_subtype) if actor_id == 10 else ability_for_actor_id(actor_id)
 	copy_ability = actor_ab if actor_ab != Constants.CopyAbility.NONE else default_ability_for_type(p_type)
 	max_hp = default_hp_for_type(p_type)
 	hp = max_hp
@@ -371,7 +410,7 @@ func step_physics(kirby_pos: Vector2) -> void:
 
 	match enemy_type:
 		EnemyType.WADDLE_DEE:
-			_step_walker(0.55)
+			_step_walker(0.0 if actor_id == 10 else 0.55)
 		EnemyType.WADDLE_DOO:
 			_step_waddle_doo(kirby_pos)
 		EnemyType.POPPY_BROS_JR:

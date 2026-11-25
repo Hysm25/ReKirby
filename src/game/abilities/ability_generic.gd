@@ -95,6 +95,30 @@ func get_active_hitboxes() -> Array[Dictionary]:
 
 func _update_rom_visuals() -> void:
 	var spec: Dictionary = _get_spec()
+	var offset_x: float = float(_facing_dir) * minf(16.0, float(spec.get("range_x", 24.0)) * 0.5)
+	if ContentRegistry.is_ready():
+		var eff_key: String = "air_puff" if _ability_id in [Constants.CopyAbility.TORNADO, Constants.CopyAbility.ICE, Constants.CopyAbility.FREEZE] else "star"
+		var eff_spec: Dictionary = ContentRegistry.get_effect_metasprite_frame(eff_key, _frame & 1)
+		if eff_spec.is_empty():
+			eff_spec = ContentRegistry.get_effect_metasprite_frame("star", 0)
+		if not eff_spec.is_empty():
+			var pals: Array[PackedColorArray] = ContentRegistry.get_room_sprite_palettes(-1)
+			var built: Dictionary = ContentRegistry.build_rom_metasprite(
+				eff_spec,
+				pals,
+				Constants.CHR_BANK_ABILITY_EFFECTS,
+				154,
+				Constants.CHR_BANK_STAR_EFFECTS
+			)
+			if not built.is_empty():
+				_ensure_sprite_pool(1)
+				var spr_rom: Sprite2D = _sprites[0]
+				spr_rom.texture = built["texture"] as ImageTexture
+				spr_rom.flip_h = _facing_dir < 0
+				spr_rom.position = _origin + Vector2(offset_x, -12.0)
+				spr_rom.visible = true
+				return
+
 	var raw_tiles: Array = spec.get("tiles", [0x00, 0x01, 0x10, 0x11]) as Array
 	var tile_ids: PackedInt32Array = PackedInt32Array()
 	for t_var: Variant in raw_tiles:
@@ -111,8 +135,6 @@ func _update_rom_visuals() -> void:
 		return
 	_ensure_sprite_pool(1)
 	var spr: Sprite2D = _sprites[0]
-	var range_x: float = float(spec.get("range_x", 24.0))
-	var offset_x: float = float(_facing_dir) * minf(16.0, range_x * 0.5)
 	spr.texture = tex
 	spr.flip_h = _facing_dir < 0
 	spr.position = _origin + Vector2(offset_x, -8.0)

@@ -14,6 +14,8 @@ const StarProjectile = preload("res://src/game/entities/star_projectile.gd")
 const WhispyWoods = preload("res://src/game/entities/whispy_woods.gd")
 const BossController = preload("res://src/game/entities/boss_controller.gd")
 const TitleScreen = preload("res://src/game/title_screen.gd")
+const FileSelectScreen = preload("res://src/game/file_select_screen.gd")
+const SubgameOverlay = preload("res://src/game/subgame_overlay.gd")
 const SaveManager = preload("res://src/core/save_manager.gd")
 
 const DEFAULT_START_ROOM_ID: int = 43
@@ -33,11 +35,14 @@ const STAGE_CLEAR_BONUS: int = 2000
 const RESPAWN_DELAY_FRAMES: int = 60
 const VICTORY_RETURN_FRAMES: int = 90
 const DOOR_FADE_FRAMES: int = 8
+const WARP_STAR_FRAMES: int = 36
 
 var _current_state: int = Constants.GameState.ROM_SETUP
 var _stage_root: Control = null
 var _missing_rom_panel: Control = null
 var _title_screen: TitleScreen = null
+var _file_select_screen: FileSelectScreen = null
+var _subgame_overlay: SubgameOverlay = null
 var _gameplay_panel: Control = null
 var _playfield_clip: Control = null
 var _transition_rect: ColorRect = null
@@ -55,6 +60,7 @@ var _camera_offset: Vector2 = Vector2.ZERO
 
 var _enemies: Array[EnemyBase] = []
 var _projectiles: Array[StarProjectile] = []
+var _hub_star_badges: Array[Sprite2D] = []
 var _boss: Node2D = null
 
 var _current_room_id: int = DEFAULT_START_ROOM_ID
@@ -64,6 +70,10 @@ var _score: int = 0
 var _defeat_frames: int = 0
 var _victory_frames: int = 0
 var _fade_frames: int = 0
+var _warp_star_frames: int = 0
+var _warp_dest_room: int = -1
+var _warp_dest_pos: Vector2 = Vector2.ZERO
+var _warp_sprite: Sprite2D = null
 var _cleared_stages: Dictionary = {}
 var _current_world: int = 1
 var _unlocked_world: int = 1
@@ -71,6 +81,7 @@ var _active_save_slot: int = 0
 var _pre_pause_state: int = Constants.GameState.PLAYING
 var _overlay_panel: ColorRect = null
 var _overlay_label: Label = null
+var _world_banner_label: Label = null
 
 
 func _ready() -> void:
@@ -86,7 +97,13 @@ func _physics_process(_delta: float) -> void:
 		if _title_screen != null:
 			_title_screen.step_frame()
 		if InputManager.is_just_pressed(Constants.NesButton.START) or InputManager.is_just_pressed(Constants.NesButton.A):
-			start_new_game()
+			enter_file_select_state()
+	elif _current_state == Constants.GameState.FILE_SELECT:
+		if _file_select_screen != null:
+			_file_select_screen.step_frame()
+	elif _current_state == Constants.GameState.SUBGAME:
+		if _subgame_overlay != null:
+			_subgame_overlay.step_frame()
 	elif _current_state == Constants.GameState.PAUSED:
 		if InputManager.is_just_pressed(Constants.NesButton.START):
 			toggle_pause()
@@ -120,6 +137,32 @@ func _physics_process(_delta: float) -> void:
 
 func step_gameplay_frame() -> void:
 	if _kirby == null or _level_map == null:
+		return
+
+	if _warp_star_frames > 0:
+		_warp_star_frames -= 1
+		if _warp_sprite != null and is_instance_valid(_warp_sprite):
+			var progress: float = 1.0 - (float(_warp_star_frames) / float(WARP_STAR_FRAMES))
+			_warp_sprite.position = Vector2(
+				lerpf(24.0, 232.0, progress),
+				96.0 - sin(progress * PI) * 48.0
+			)
+		if _warp_star_frames == 0:
+			if _warp_sprite != null and is_instance_valid(_warp_sprite):
+				_dispose_node(_warp_sprite)
+			_warp_sprite = null
+			var w_dst: int = _warp_dest_room
+			var w_pos: Vector2 = _warp_dest_pos
+			_warp_dest_room = -1
+			if w_dst >= 0 and ContentRegistry.has_room(w_dst) and load_world_room(w_dst, w_pos, true):
+				_fade_frames = DOOR_FADE_FRAMES
+				if _transition_rect != null:
+					_transition_rect.color.a = 1.0
+					_transition_rect.visible = true
+				_update_camera_scroll()
+		if _hud_renderer != null:
+			_hud_renderer.step_frame()
+			_hud_renderer.refresh()
 		return
 
 	if _victory_frames > 0:
@@ -617,6 +660,21 @@ func _build_gameplay_panel() -> void:
 	_overlay_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 1.0))
 	_overlay_panel.add_child(_overlay_label)
 
+	_world_banner_label = Label.new()
+	_world_banner_label.name = "WorldMapBanner"
+	_world_banner_label.position = Vector2(8.0, 4.0)
+	_world_banner_label.size = Vector2(Constants.PLAYFIELD_WIDTH - 16.0, 16.0)
+	_world_banner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_world_banner_label.add_theme_font_size_override("font_size", 8)
+	_world_banner_label.add_theme_color_override("font_color", Color(1.0, 0.96, 0.65, 1.0))
+	_world_banner_label.visible = false
+	_playfield_clip.add_child(_world_banner_label)
+
+	_subgame_overlay = SubgameOverlay.new()
+	_subgame_overlay.visible = false
+	_subgame_overlay.subgame_finished.connect(_on_subgame_finished)
+	_playfield_clip.add_child(_subgame_overlay)
+
 	# Cross-platform mobile/touch overlay
 	_virtual_gamepad = VirtualGamepad.new()
 	add_child(_virtual_gamepad)
@@ -683,13 +741,56 @@ func _build_title_screen() -> void:
 
 func _on_title_start_requested() -> void:
 	if _current_state == Constants.GameState.TITLE:
-		start_new_game()
+		enter_file_select_state()
+
+
+func enter_file_select_state() -> void:
+	var prev: int = _current_state
+	_missing_rom_panel.visible = false
+	if _title_screen != null:
+		_title_screen.visible = false
+	_gameplay_panel.visible = false
+	if _file_select_screen == null:
+		_file_select_screen = FileSelectScreen.new()
+		_file_select_screen.slot_selected.connect(_on_file_slot_selected)
+		_file_select_screen.back_to_title.connect(_enter_ready_state)
+		_stage_root.add_child(_file_select_screen)
+	_file_select_screen.setup_from_rom()
+	_file_select_screen.visible = true
+	_current_state = Constants.GameState.FILE_SELECT
+	EventBus.game_state_changed.emit(_current_state, prev)
+
+
+func _on_file_slot_selected(slot_idx: int) -> void:
+	start_new_game(slot_idx)
+
+
+func start_subgame(subgame_kind: int) -> bool:
+	if _subgame_overlay == null:
+		return false
+	var prev: int = _current_state
+	_current_state = Constants.GameState.SUBGAME
+	_subgame_overlay.start_subgame(subgame_kind)
+	EventBus.game_state_changed.emit(_current_state, prev)
+	return true
+
+
+func _on_subgame_finished(bonus_score: int, extra_lives: int) -> void:
+	_add_score(bonus_score)
+	if extra_lives > 0:
+		_lives = mini(99, _lives + extra_lives)
+		EventBus.lives_changed.emit(_lives)
+	var prev: int = _current_state
+	_current_state = Constants.GameState.PLAYING
+	EventBus.game_state_changed.emit(_current_state, prev)
 
 
 func _enter_ready_state() -> void:
 	var prev: int = _current_state
 	_missing_rom_panel.visible = false
 	_gameplay_panel.visible = false
+	if _file_select_screen != null:
+		_file_select_screen.visible = false
 	_ensure_world_nodes()
 	if _title_screen == null:
 		_build_title_screen()
@@ -704,20 +805,27 @@ func _enter_ready_state() -> void:
 	EventBus.game_state_changed.emit(_current_state, prev)
 
 
-func start_new_game() -> bool:
+func start_new_game(slot_idx: int = 0) -> bool:
 	var prev: int = _current_state
 	_missing_rom_panel.visible = false
 	if _title_screen != null:
 		_title_screen.visible = false
+	if _file_select_screen != null:
+		_file_select_screen.visible = false
 	_gameplay_panel.visible = true
 	_ensure_world_nodes()
 
+	_active_save_slot = clampi(slot_idx, 0, SaveManager.SLOT_COUNT - 1)
 	_lives = 4
 	_score = 0
 	_cleared_stages.clear()
 	var slots: Array[Dictionary] = SaveManager.load_all_slots()
 	var slot_data: Dictionary = slots[_active_save_slot]
 	_unlocked_world = clampi(int(slot_data.get("unlocked_world", 1)), 1, 7)
+	var raw_cleared: Variant = slot_data.get("cleared_worlds", [])
+	if typeof(raw_cleared) == TYPE_ARRAY:
+		for cw_var: Variant in (raw_cleared as Array):
+			_cleared_stages["boss_%d" % int(cw_var)] = true
 	_current_world = 1
 	_set_overlay(false, "")
 	var start_room: int = DEFAULT_START_ROOM_ID if ContentRegistry.has_room(DEFAULT_START_ROOM_ID) else Constants.WORLD1_HUB_ROOM_ID
@@ -742,6 +850,13 @@ func _clear_room_entities() -> void:
 	for p: StarProjectile in _projectiles:
 		_dispose_node(p)
 	_projectiles.clear()
+	for badge: Sprite2D in _hub_star_badges:
+		_dispose_node(badge)
+	_hub_star_badges.clear()
+	if _warp_sprite != null and is_instance_valid(_warp_sprite):
+		_dispose_node(_warp_sprite)
+	_warp_sprite = null
+	_warp_star_frames = 0
 	if _boss != null and is_instance_valid(_boss):
 		_dispose_node(_boss)
 	_boss = null
@@ -777,11 +892,20 @@ func load_world_room(room_id: int, spawn_pos: Vector2, preserve_status: bool = t
 		var scr: int = int(ent.get("screen", 0))
 		var tx: int = int(ent.get("tile_x", 0))
 		var ty: int = int(ent.get("tile_y", 0))
+		var subtype: int = int(ent.get("subtype", 0))
 		var e_pos: Vector2 = _level_map.screen_tile_to_pixel(scr, tx, ty) + Vector2(8.0, 16.0)
 		var enemy: EnemyBase = EnemyBase.new()
-		enemy.setup(e_type, e_pos, _level_map, -1, sp_chr_bank, actor_id)
+		enemy.setup(e_type, e_pos, _level_map, -1, sp_chr_bank, actor_id, subtype)
 		_enemies_layer.add_child(enemy)
 		_enemies.append(enemy)
+
+	if Constants.WORLD_HUB_ROOM_IDS.has(room_id):
+		_spawn_hub_star_badges()
+		if _world_banner_label != null:
+			_world_banner_label.text = "WORLD %d : %s" % [_current_world, _get_world_name(_current_world)]
+			_world_banner_label.visible = true
+	elif _world_banner_label != null:
+		_world_banner_label.visible = false
 
 	var is_boss_arena: bool = BOSS_ROOM_IDS.has(room_id) or room_id in [8, 9, 10, 11, 12, 14, 15]
 	if room_id == BOSS_ROOM_ID:
@@ -841,6 +965,42 @@ func get_cleared_stages() -> Dictionary:
 	return _cleared_stages.duplicate()
 
 
+func get_hub_star_badges() -> Array[Sprite2D]:
+	return _hub_star_badges
+
+
+func _spawn_hub_star_badges() -> void:
+	if _level_map == null or _enemies_layer == null or not ContentRegistry.is_ready():
+		return
+	var star_spec: Dictionary = ContentRegistry.get_effect_metasprite_frame("star", 0)
+	var pals: Array[PackedColorArray] = ContentRegistry.get_room_sprite_palettes(_current_room_id)
+	var built: Dictionary = ContentRegistry.build_rom_metasprite(star_spec, pals, Constants.CHR_BANK_STAR_EFFECTS, 154, Constants.CHR_BANK_STAR_EFFECTS) if not star_spec.is_empty() else {}
+	var star_tex: ImageTexture = built.get("texture", null) as ImageTexture
+	for door: Dictionary in _level_map.get_doors():
+		var sp: int = int(door.get("special", 0))
+		var dst: int = int(door.get("dest_room_id", -1))
+		var is_stage_cleared: bool = (
+			_cleared_stages.has(dst)
+			or _cleared_stages.has("stage_%d_%d" % [_current_world, sp])
+			or (sp == 0x1D and _cleared_stages.has("boss_%d" % _current_world))
+		)
+		if is_stage_cleared and star_tex != null:
+			var w_scr: int = maxi(1, int(ContentRegistry.get_room_data(_current_room_id).get("width_screens", 2)))
+			var scr_i: int = int(door.get("src_screen", 0))
+			var sx: int = scr_i % w_scr
+			var sy: int = scr_i / w_scr
+			var badge: Sprite2D = Sprite2D.new()
+			badge.name = "HubStarBadge_%d" % dst
+			badge.texture = star_tex
+			badge.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			badge.position = Vector2(
+				float((sx * Constants.ROOM_SCREEN_COLS + int(door.get("src_x", 0))) * Constants.METATILE_SIZE + 8),
+				float((sy * Constants.ROOM_SCREEN_ROWS + int(door.get("src_y", 0))) * Constants.METATILE_SIZE - 12)
+			)
+			_enemies_layer.add_child(badge)
+			_hub_star_badges.append(badge)
+
+
 func _check_door_transition() -> bool:
 	var door: Dictionary = {}
 	if InputManager.is_just_pressed(Constants.NesButton.UP):
@@ -849,15 +1009,23 @@ func _check_door_transition() -> bool:
 		door = _level_map.find_edge_door_at_kirby(_kirby.pos.x, _kirby.pos.y, _kirby.vel.y)
 	if door.is_empty():
 		return false
+	var sp: int = int(door.get("special", 0))
+	if sp in [SubgameOverlay.SubgameKind.CRANE_FEVER, SubgameOverlay.SubgameKind.EGG_CATCHER, SubgameOverlay.SubgameKind.QUICK_DRAW] and Constants.WORLD_HUB_ROOM_IDS.has(_current_room_id):
+		return start_subgame(sp)
+
 	var dst_room: int = int(door.get("dest_room_id", -1))
 	if not ContentRegistry.has_room(dst_room):
 		return false
-	if int(door.get("special", 0)) == 16:
+	if sp == 16:
 		_cleared_stages[_current_room_id] = true
+		_cleared_stages["stage_%d_1" % _current_world] = true
 		_add_score(STAGE_CLEAR_BONUS)
 
 	var dst_data: Dictionary = ContentRegistry.get_room_data(dst_room)
 	var spawn_pos: Vector2 = LevelMap.compute_door_spawn_pixel(dst_data, door)
+	if (sp == 0x1E or sp == 0x1F) and Constants.WORLD_HUB_ROOM_IDS.has(_current_room_id):
+		_start_warp_star_cutscene(dst_room, spawn_pos)
+		return true
 	if load_world_room(dst_room, spawn_pos, true):
 		EventBus.sfx_requested.emit(Constants.NesSfx.DOOR_WARP)
 		_fade_frames = DOOR_FADE_FRAMES
@@ -867,6 +1035,26 @@ func _check_door_transition() -> bool:
 		_update_camera_scroll()
 		return true
 	return false
+
+
+func _start_warp_star_cutscene(dst_room: int, dst_pos: Vector2) -> void:
+	_warp_dest_room = dst_room
+	_warp_dest_pos = dst_pos
+	_warp_star_frames = WARP_STAR_FRAMES
+	EventBus.sfx_requested.emit(Constants.NesSfx.DOOR_WARP)
+	if _warp_sprite != null and is_instance_valid(_warp_sprite):
+		_dispose_node(_warp_sprite)
+	_warp_sprite = Sprite2D.new()
+	_warp_sprite.name = "WarpStarSprite"
+	_warp_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	if ContentRegistry.is_ready():
+		var star_spec: Dictionary = ContentRegistry.get_effect_metasprite_frame("star", 0)
+		var pals: Array[PackedColorArray] = ContentRegistry.get_room_sprite_palettes(_current_room_id)
+		if not star_spec.is_empty():
+			var built: Dictionary = ContentRegistry.build_rom_metasprite(star_spec, pals, Constants.CHR_BANK_STAR_EFFECTS, 154, Constants.CHR_BANK_STAR_EFFECTS)
+			if not built.is_empty():
+				_warp_sprite.texture = built["texture"] as ImageTexture
+	_playfield_clip.add_child(_warp_sprite)
 
 
 func _update_camera_scroll() -> void:

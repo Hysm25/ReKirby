@@ -132,6 +132,8 @@ enum GameState {
 	BOSS_FIGHT = 6,
 	GAME_OVER = 7,
 	ENDING = 8,
+	FILE_SELECT = 9,
+	SUBGAME = 10,
 }
 
 enum NesButton {
