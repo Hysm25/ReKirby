@@ -67,6 +67,8 @@ func step_frame() -> void:
 	if _use_mock:
 		_current_mask = _apply_socd_neutral(_mock_mask)
 		return
+	if not InputMap.has_action(ACTION_RIGHT):
+		_ensure_default_input_map()
 
 	var mask: int = _touch_mask
 	if Input.is_action_pressed(ACTION_RIGHT):

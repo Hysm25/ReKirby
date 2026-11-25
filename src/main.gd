@@ -5,6 +5,8 @@ const Constants = preload("res://src/core/constants.gd")
 const ROMImporter = preload("res://src/importer/rom_importer.gd")
 const LevelMap = preload("res://src/game/level_map.gd")
 const KirbyController = preload("res://src/game/kirby_controller.gd")
+const HUDRenderer = preload("res://src/game/hud_renderer.gd")
+const VirtualGamepad = preload("res://src/game/virtual_gamepad.gd")
 
 const DEFAULT_START_ROOM_ID: int = 43
 
@@ -16,8 +18,9 @@ var _playfield_clip: Control = null
 var _world_container: Node2D = null
 var _level_map: LevelMap = null
 var _kirby: KirbyController = null
+var _hud_renderer: HUDRenderer = null
+var _virtual_gamepad: VirtualGamepad = null
 var _status_label: Label = null
-var _hud_label: Label = null
 var _camera_offset: Vector2 = Vector2.ZERO
 
 
@@ -35,7 +38,8 @@ func _physics_process(_delta: float) -> void:
 		_kirby.consume_spawned_projectiles()
 		_check_door_transition()
 		_update_camera_scroll()
-		_update_hud_debug_text()
+		if _hud_renderer != null:
+			_hud_renderer.refresh()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -146,20 +150,13 @@ func _build_gameplay_panel() -> void:
 	_world_container.name = "WorldContainer"
 	_playfield_clip.add_child(_world_container)
 
-	# Bottom 256x48 fixed HUD region (Y=192..239)
-	var hud_bg: ColorRect = ColorRect.new()
-	hud_bg.color = Color(0.14, 0.09, 0.16, 1.0)
-	hud_bg.position = Vector2(0, Constants.HUD_Y)
-	hud_bg.size = Vector2(Constants.NATIVE_WIDTH, Constants.HUD_HEIGHT)
-	_gameplay_panel.add_child(hud_bg)
+	# Bottom 256x48 fixed Scanline IRQ Split HUD (Y=192..239)
+	_hud_renderer = HUDRenderer.new()
+	_gameplay_panel.add_child(_hud_renderer)
 
-	_hud_label = Label.new()
-	_hud_label.position = Vector2(8, Constants.HUD_Y + 6)
-	_hud_label.size = Vector2(Constants.NATIVE_WIDTH - 16, Constants.HUD_HEIGHT - 12)
-	_hud_label.add_theme_font_size_override("font_size", 8)
-	_hud_label.add_theme_color_override("font_color", Color(1.0, 0.72, 0.85, 1.0))
-	_hud_label.text = "HUD SPLIT Y=192 (48PX FIXED)"
-	_gameplay_panel.add_child(_hud_label)
+	# Cross-platform mobile/touch overlay
+	_virtual_gamepad = VirtualGamepad.new()
+	add_child(_virtual_gamepad)
 
 
 func _attempt_rom_boot() -> void:
@@ -206,7 +203,8 @@ func _enter_ready_state() -> void:
 		_update_camera_scroll()
 		_current_state = Constants.GameState.PLAYING
 		set_physics_process(true)
-		_update_hud_debug_text()
+		if _hud_renderer != null:
+			_hud_renderer.set_status(_kirby.hp, _kirby.max_hp, 4, 0, _kirby.copy_ability)
 		EventBus.room_changed.emit(1, 1, start_room)
 		EventBus.game_state_changed.emit(_current_state, prev)
 	else:
@@ -242,19 +240,6 @@ func _update_camera_scroll() -> void:
 	var target_y: float = clampf(_kirby.pos.y - float(Constants.PLAYFIELD_HEIGHT) * 0.6, 0.0, max_cam_y)
 	_camera_offset = Vector2(roundf(target_x), roundf(target_y))
 	_world_container.position = -_camera_offset
-
-
-func _update_hud_debug_text() -> void:
-	if _hud_label == null or _kirby == null or _level_map == null:
-		return
-	_hud_label.text = "KIRBY HP %d/%d  AB:%d  ROOM:%d\nPOS (%d,%d)" % [
-		_kirby.hp,
-		_kirby.max_hp,
-		_kirby.copy_ability,
-		_level_map.get_room_id(),
-		int(_kirby.pos.x),
-		int(_kirby.pos.y),
-	]
 
 
 func _on_retry_pressed() -> void:

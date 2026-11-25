@@ -5,6 +5,9 @@ extends RefCounted
 const Constants = preload("res://src/core/constants.gd")
 const LevelMap = preload("res://src/game/level_map.gd")
 const KirbyController = preload("res://src/game/kirby_controller.gd")
+const AbilitySword = preload("res://src/game/abilities/ability_sword.gd")
+const HUDRenderer = preload("res://src/game/hud_renderer.gd")
+const VirtualGamepad = preload("res://src/game/virtual_gamepad.gd")
 const ROMImporter = preload("res://src/importer/rom_importer.gd")
 const MAX_CLEANUP_ENTRIES: int = 2048
 
@@ -19,6 +22,8 @@ func run_tests() -> Dictionary:
 	_test_one_way_drop_through_and_slide_break()
 	_test_hover_exhale_and_swim_water_gun()
 	_test_inhale_spit_swallow_and_damage()
+	_test_copy_abilities_sword_fire_spark_beam()
+	_test_hud_renderer_and_virtual_gamepad()
 	_test_live_rom_stage_1_1_if_present()
 	return {"passed": _passed, "failed": _failed}
 
@@ -395,6 +400,197 @@ func _test_inhale_spit_swallow_and_damage() -> void:
 	lvl.free()
 
 
+func _test_copy_abilities_sword_fire_spark_beam() -> void:
+	var lvl: LevelMap = LevelMap.new()
+	var ts: Dictionary = _build_synthetic_tileset()
+	var room: Dictionary = _build_synthetic_room(16, 12, 9) # Floor row 9 (y=144)
+	var grid: Array = room["metatiles"] as Array
+	# Breakable star blocks in front for ability break checks
+	grid[8 * 16 + 5] = 8 # Sword slash target (x=80..95)
+	grid[8 * 16 + 6] = 8 # Fire stream target (x=96..111)
+	grid[8 * 16 + 3] = 8 # Spark 360 behind/adjacent target (x=48..63)
+	grid[7 * 16 + 7] = 8 # Beam sweep overhead/front target behind thin wall col 6
+	lvl.load_from_dicts(room, ts)
+
+	var kirby: KirbyController = KirbyController.new()
+	kirby.setup(lvl, Vector2(64.0, 144.0))
+	InputManager.set_mock_mask(0)
+	for _i: int in range(2):
+		InputManager.step_frame()
+		kirby.step_physics()
+
+	# 1. SWORD: standing slash, air spin, dash slash
+	kirby.equip_copy_ability(Constants.CopyAbility.SWORD)
+	_assert_eq_int(kirby.copy_ability, Constants.CopyAbility.SWORD, "Kirby equips SWORD ability")
+	InputManager.set_mock_mask(Constants.NesButton.B)
+	InputManager.step_frame()
+	kirby.step_physics()
+	_assert_eq_int(kirby.state, KirbyController.State.ABILITY_ATTACK, "B triggers SWORD ABILITY_ATTACK")
+	var sword_boxes: Array[Dictionary] = kirby.get_active_hitboxes()
+	_assert_eq_int(sword_boxes.size(), 1, "SWORD slash exposes 1 active hitbox")
+	if not sword_boxes.is_empty():
+		_assert_true(String(sword_boxes[0].get("kind", "")) == "sword_slash", "Ground B uses sword_slash mode")
+	InputManager.set_mock_mask(0)
+	for _i: int in range(3):
+		InputManager.step_frame()
+		kirby.step_physics()
+	_assert_eq_int(lvl.get_collision_at_tile(5, 8), Constants.TileCollision.AIR, "SWORD slash breaks star block at (5,8)")
+	for _i: int in range(12):
+		InputManager.step_frame()
+		kirby.step_physics()
+	_assert_true(kirby.state != KirbyController.State.ABILITY_ATTACK, "SWORD slash finishes cleanly")
+
+	# Air Spin Slash
+	InputManager.set_mock_mask(Constants.NesButton.A)
+	for _i: int in range(3):
+		InputManager.step_frame()
+		kirby.step_physics()
+	InputManager.set_mock_mask(Constants.NesButton.B)
+	InputManager.step_frame()
+	kirby.step_physics()
+	var spin_boxes: Array[Dictionary] = kirby.get_active_hitboxes()
+	_assert_true(not spin_boxes.is_empty() and String(spin_boxes[0].get("kind", "")) == "sword_air_spin", "Midair B triggers sword_air_spin")
+	InputManager.set_mock_mask(0)
+	for _i: int in range(30):
+		InputManager.step_frame()
+		kirby.step_physics()
+
+	# Dash Slash (double-tap RIGHT -> RUN + B)
+	kirby.setup(lvl, Vector2(32.0, 144.0))
+	kirby.equip_copy_ability(Constants.CopyAbility.SWORD)
+	InputManager.set_mock_mask(0)
+	InputManager.step_frame()
+	kirby.step_physics()
+	InputManager.set_mock_mask(Constants.NesButton.RIGHT)
+	InputManager.step_frame()
+	kirby.step_physics()
+	InputManager.set_mock_mask(0)
+	InputManager.step_frame()
+	kirby.step_physics()
+	InputManager.set_mock_mask(Constants.NesButton.RIGHT)
+	for _i: int in range(4):
+		InputManager.step_frame()
+		kirby.step_physics()
+	_assert_eq_int(kirby.state, KirbyController.State.RUN, "Kirby enters RUN before Dash Slash")
+	InputManager.set_mock_mask(Constants.NesButton.RIGHT | Constants.NesButton.B)
+	InputManager.step_frame()
+	kirby.step_physics()
+	var dash_boxes: Array[Dictionary] = kirby.get_active_hitboxes()
+	_assert_true(not dash_boxes.is_empty() and String(dash_boxes[0].get("kind", "")) == "sword_dash", "Running B triggers sword_dash")
+	var sword_ab: AbilitySword = kirby.get_active_ability() as AbilitySword
+	_assert_eq_int(sword_ab.get_mode(), AbilitySword.Mode.DASH_SLASH, "AbilitySword records DASH_SLASH mode")
+
+	# 2. FIRE: continuous flame stream while B held & breaks block (6,8)
+	kirby.setup(lvl, Vector2(64.0, 144.0))
+	kirby.equip_copy_ability(Constants.CopyAbility.FIRE)
+	InputManager.set_mock_mask(0)
+	InputManager.step_frame()
+	kirby.step_physics()
+	InputManager.set_mock_mask(Constants.NesButton.B)
+	for _i: int in range(18):
+		InputManager.step_frame()
+		kirby.step_physics()
+	_assert_eq_int(kirby.state, KirbyController.State.ABILITY_ATTACK, "Holding B sustains FIRE flame stream past 12 frames")
+	var fire_boxes: Array[Dictionary] = kirby.get_active_hitboxes()
+	_assert_true(not fire_boxes.is_empty() and String(fire_boxes[0].get("kind", "")) == "fire_stream", "FIRE emits fire_stream hitbox")
+	_assert_eq_int(lvl.get_collision_at_tile(6, 8), Constants.TileCollision.AIR, "FIRE breaks star block at (6,8)")
+	InputManager.set_mock_mask(0)
+	InputManager.step_frame()
+	kirby.step_physics()
+	_assert_true(kirby.state != KirbyController.State.ABILITY_ATTACK, "Releasing B stops continuous FIRE stream")
+
+	# 3. SPARK: 360-degree barrier protects contact damage & breaks adjacent behind block (3,8)
+	kirby.setup(lvl, Vector2(68.0, 144.0))
+	kirby.equip_copy_ability(Constants.CopyAbility.SPARK)
+	InputManager.set_mock_mask(0)
+	InputManager.step_frame()
+	kirby.step_physics()
+	InputManager.set_mock_mask(Constants.NesButton.B)
+	for _i: int in range(4):
+		InputManager.step_frame()
+		kirby.step_physics()
+	var spark_boxes: Array[Dictionary] = kirby.get_active_hitboxes()
+	_assert_true(not spark_boxes.is_empty() and String(spark_boxes[0].get("kind", "")) == "spark_barrier", "SPARK activates 360-deg spark_barrier hitbox")
+	_assert_eq_int(lvl.get_collision_at_tile(3, 8), Constants.TileCollision.AIR, "SPARK 360 barrier breaks behind star block at (3,8)")
+	_assert_true(not kirby.take_damage(1, -1), "Active SPARK barrier blocks contact damage")
+
+	# 4. BEAM: 5-orb sweeping curved whip passing through walls & breaking (7,7)
+	kirby.setup(lvl, Vector2(88.0, 144.0))
+	kirby.equip_copy_ability(Constants.CopyAbility.BEAM)
+	InputManager.set_mock_mask(0)
+	InputManager.step_frame()
+	kirby.step_physics()
+	InputManager.set_mock_mask(Constants.NesButton.B)
+	InputManager.step_frame()
+	kirby.step_physics()
+	var beam_boxes: Array[Dictionary] = kirby.get_active_hitboxes()
+	_assert_eq_int(beam_boxes.size(), 5, "BEAM whip emits 5 curved orb hitboxes")
+	if beam_boxes.size() == 5:
+		_assert_true(bool(beam_boxes[4].get("passes_through_walls", false)), "BEAM whip passes through thin walls")
+	InputManager.set_mock_mask(0)
+	for _i: int in range(18):
+		InputManager.step_frame()
+		kirby.step_physics()
+	_assert_eq_int(lvl.get_collision_at_tile(7, 7), Constants.TileCollision.AIR, "BEAM whip sweeps through and breaks star block at (7,7)")
+
+	# SELECT drops active Copy Ability into an Ability Star
+	InputManager.set_mock_mask(Constants.NesButton.SELECT)
+	InputManager.step_frame()
+	kirby.step_physics()
+	_assert_eq_int(kirby.copy_ability, Constants.CopyAbility.NONE, "SELECT drops active CopyAbility")
+	var dropped: Array[Dictionary] = kirby.consume_spawned_projectiles()
+	_assert_true(not dropped.is_empty() and String(dropped[0].get("kind", "")) == "ability_star", "SELECT emits ability_star projectile")
+
+	InputManager.clear_mock_mask()
+	kirby.free()
+	lvl.free()
+
+
+func _test_hud_renderer_and_virtual_gamepad() -> void:
+	var hud: HUDRenderer = HUDRenderer.new()
+	hud.connect_event_bus()
+	hud.set_status(4, 6, 3, 12500, Constants.CopyAbility.BEAM)
+	_assert_eq_int(hud.get_displayed_hp(), 4, "HUDRenderer stores updated HP")
+	_assert_eq_int(hud.get_displayed_lives(), 3, "HUDRenderer stores updated lives")
+	_assert_eq_int(hud.get_displayed_score(), 12500, "HUDRenderer stores updated score")
+	_assert_eq_int(hud.get_displayed_ability(), Constants.CopyAbility.BEAM, "HUDRenderer stores active CopyAbility")
+
+	# Verify EventBus signals propagate to HUDRenderer
+	EventBus.hp_changed.emit(2, 6)
+	EventBus.score_changed.emit(13000, 500)
+	EventBus.copy_ability_changed.emit(Constants.CopyAbility.FIRE)
+	_assert_eq_int(hud.get_displayed_hp(), 2, "EventBus.hp_changed updates HUDRenderer HP")
+	_assert_eq_int(hud.get_displayed_score(), 13000, "EventBus.score_changed updates HUDRenderer score")
+	_assert_eq_int(hud.get_displayed_ability(), Constants.CopyAbility.FIRE, "EventBus.copy_ability_changed updates HUDRenderer card")
+
+	# Verify VirtualGamepad routes touch presses cleanly into InputManager
+	var pad: VirtualGamepad = VirtualGamepad.new()
+	pad._build_overlay()
+	pad.set_overlay_visible(true)
+	InputManager.clear_mock_mask()
+	var a_rect: Rect2 = pad.get_button_rect(Constants.NesButton.A)
+	_assert_true(a_rect.size.x > 0.0, "VirtualGamepad defines valid A button rect")
+	var touch_press: InputEventScreenTouch = InputEventScreenTouch.new()
+	touch_press.index = 0
+	touch_press.pressed = true
+	touch_press.position = a_rect.get_center()
+	pad.handle_touch_event(touch_press)
+	InputManager.step_frame()
+	_assert_true(InputManager.is_pressed(Constants.NesButton.A), "Touch press on A sets NesButton.A in InputManager")
+
+	var touch_rel: InputEventScreenTouch = InputEventScreenTouch.new()
+	touch_rel.index = 0
+	touch_rel.pressed = false
+	touch_rel.position = a_rect.get_center()
+	pad.handle_touch_event(touch_rel)
+	InputManager.step_frame()
+	_assert_true(not InputManager.is_pressed(Constants.NesButton.A), "Touch release on A clears NesButton.A cleanly")
+
+	InputManager.clear_touch_mask()
+	pad.free()
+	hud.free()
+
+
 func _test_live_rom_stage_1_1_if_present() -> void:
 	var test_user_dir: String = ""
 	if not ContentRegistry.is_ready():
@@ -426,8 +622,15 @@ func _test_live_rom_stage_1_1_if_present() -> void:
 	var door: Dictionary = lvl.find_door_at_pixel(984.0, 120.0)
 	_assert_eq_int(int(door.get("dest_room_id", -1)), 44, "Room 43 exit door triggers transition to Room 44")
 
-	# Load Stage 1-2 Room 47 (contains water/slopes) and verify water detection
+	# Load Stage 1-2 Room 47 (contains water/slopes) and verify HUDRenderer renders 256x48 ROM texture
 	_assert_true(lvl.load_room(47), "LevelMap loads extracted Stage 1-2 Room 47")
+	var hud: HUDRenderer = HUDRenderer.new()
+	hud.set_status(6, 6, 4, 2400, Constants.CopyAbility.SWORD)
+	_assert_true(hud.get_hud_texture() != null, "HUDRenderer builds 256x48 ImageTexture from ROM CHR + Bank 56 palettes")
+	if hud.get_hud_texture() != null:
+		_assert_eq_int(hud.get_hud_texture().get_width(), Constants.NATIVE_WIDTH, "HUD texture width is 256px")
+		_assert_eq_int(hud.get_hud_texture().get_height(), Constants.HUD_HEIGHT, "HUD texture height is 48px")
+	hud.free()
 
 	InputManager.clear_mock_mask()
 	kirby.free()

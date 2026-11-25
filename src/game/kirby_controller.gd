@@ -5,6 +5,11 @@ extends Node2D
 
 const Constants = preload("res://src/core/constants.gd")
 const LevelMap = preload("res://src/game/level_map.gd")
+const AbilityBase = preload("res://src/game/abilities/ability_base.gd")
+const AbilitySword = preload("res://src/game/abilities/ability_sword.gd")
+const AbilityFire = preload("res://src/game/abilities/ability_fire.gd")
+const AbilitySpark = preload("res://src/game/abilities/ability_spark.gd")
+const AbilityBeam = preload("res://src/game/abilities/ability_beam.gd")
 
 enum State {
 	IDLE = 0,
@@ -22,6 +27,7 @@ enum State {
 	MOUTH_FULL = 12,
 	DAMAGE_KNOCKBACK = 13,
 	DEFEAT = 14,
+	ABILITY_ATTACK = 15,
 }
 
 const MAX_HP: int = 6
@@ -88,10 +94,13 @@ var _level_map: LevelMap = null
 var _spawned_projectiles: Array[Dictionary] = []
 var _sprite: Sprite2D = null
 var _idle_tex: ImageTexture = null
+var _abilities: Dictionary = {}
+var _active_ability: AbilityBase = null
 
 
 func _ready() -> void:
 	_ensure_visual_sprite()
+	_ensure_ability_nodes()
 
 
 func _ensure_visual_sprite() -> void:
@@ -174,7 +183,66 @@ func setup(level_map: LevelMap, spawn_pos: Vector2) -> void:
 	_hovering = false
 	_inhaling = false
 	_spawned_projectiles.clear()
+	_ensure_ability_nodes()
+	_deactivate_active_ability()
+	_active_ability = null
 	_ensure_visual_sprite()
+
+
+func _ensure_ability_nodes() -> void:
+	if not _abilities.is_empty():
+		return
+	var list: Array[AbilityBase] = [
+		AbilitySword.new(),
+		AbilityFire.new(),
+		AbilitySpark.new(),
+		AbilityBeam.new(),
+	]
+	for ab: AbilityBase in list:
+		ab.name = "Ability_%s" % ab.get_ability_name()
+		add_child(ab)
+		_abilities[ab.get_ability_id()] = ab
+
+
+func equip_copy_ability(ability_id: int) -> void:
+	_ensure_ability_nodes()
+	_deactivate_active_ability()
+	if _abilities.has(ability_id):
+		copy_ability = ability_id
+		_active_ability = _abilities[ability_id] as AbilityBase
+	else:
+		copy_ability = Constants.CopyAbility.NONE
+		_active_ability = null
+	EventBus.copy_ability_changed.emit(copy_ability)
+
+
+func drop_copy_ability() -> bool:
+	if copy_ability == Constants.CopyAbility.NONE:
+		return false
+	var dropped_ability: int = copy_ability
+	_deactivate_active_ability()
+	copy_ability = Constants.CopyAbility.NONE
+	_active_ability = null
+	if state == State.ABILITY_ATTACK:
+		state = State.IDLE if on_ground else State.FALL
+		state_frames = 0
+	EventBus.copy_ability_changed.emit(copy_ability)
+	_spawned_projectiles.append({
+		"kind": "ability_star",
+		"ability": dropped_ability,
+		"pos": Vector2(pos.x, pos.y - 8.0),
+		"vel": Vector2(float(-facing_dir) * 1.4, -2.5),
+	})
+	return true
+
+
+func get_active_ability() -> AbilityBase:
+	return _active_ability
+
+
+func _deactivate_active_ability() -> void:
+	if _active_ability != null and _active_ability.is_active():
+		_active_ability.cancel_attack()
 
 
 func get_collision_height() -> float:
@@ -188,7 +256,20 @@ func get_body_rect() -> Rect2:
 	return Rect2(pos.x - HALF_WIDTH, pos.y - h, HALF_WIDTH * 2.0, h)
 
 
+func get_active_hitboxes() -> Array[Dictionary]:
+	if state == State.ABILITY_ATTACK and _active_ability != null and _active_ability.is_active():
+		return _active_ability.get_active_hitboxes()
+	var single: Dictionary = get_active_hitbox()
+	if bool(single.get("active", false)):
+		return [single]
+	return []
+
+
 func get_active_hitbox() -> Dictionary:
+	if state == State.ABILITY_ATTACK and _active_ability != null and _active_ability.is_active():
+		var boxes: Array[Dictionary] = _active_ability.get_active_hitboxes()
+		if not boxes.is_empty():
+			return boxes[0]
 	if state == State.INHALE:
 		var box_x: float = pos.x + 4.0 if facing_dir > 0 else pos.x - 44.0
 		return {
@@ -223,8 +304,10 @@ func capture_inhaled_cargo(ability_id: int = Constants.CopyAbility.NONE) -> bool
 	return true
 
 
-func take_damage(amount: int = 1, knock_dir: int = -1) -> bool:
+func take_damage(amount: int = 1, knock_dir: int = -1, bypass_barrier: bool = false) -> bool:
 	if invuln_frames > 0 or state == State.DEFEAT:
+		return false
+	if not bypass_barrier and state == State.ABILITY_ATTACK and _active_ability != null and _active_ability.is_blocking_contact():
 		return false
 
 	hp = maxi(0, hp - maxi(1, amount))
@@ -233,7 +316,9 @@ func take_damage(amount: int = 1, knock_dir: int = -1) -> bool:
 	# Drop active Copy Ability as a bouncing Ability Star on hit
 	if copy_ability != Constants.CopyAbility.NONE:
 		var dropped_ability: int = copy_ability
+		_deactivate_active_ability()
 		copy_ability = Constants.CopyAbility.NONE
+		_active_ability = null
 		EventBus.copy_ability_changed.emit(copy_ability)
 		_spawned_projectiles.append({
 			"kind": "ability_star",
@@ -299,6 +384,10 @@ func step_physics() -> void:
 	else:
 		in_water = false
 
+	# SELECT drops active Copy Ability
+	if InputManager.is_just_pressed(Constants.NesButton.SELECT) and copy_ability != Constants.CopyAbility.NONE and not has_cargo:
+		drop_copy_ability()
+
 	# Handle damage lock state
 	if state == State.DAMAGE_KNOCKBACK:
 		vel.y = minf(vel.y + GRAVITY, MAX_FALL_SPEED)
@@ -308,6 +397,31 @@ func step_physics() -> void:
 			state_frames = 0
 		_sync_visual()
 		return
+
+	# Active Copy Ability attack step
+	if state == State.ABILITY_ATTACK and _active_ability != null:
+		if in_water:
+			_deactivate_active_ability()
+		else:
+			_active_ability.step_attack(facing_dir, on_ground, _is_running, pos, b_pressed)
+			if _active_ability.is_active():
+				var impulse_vx: float = _active_ability.get_dash_impulse(facing_dir)
+				if impulse_vx != 0.0:
+					vel.x = impulse_vx
+				elif on_ground and _active_ability.is_movement_locked():
+					vel.x = move_toward(vel.x, 0.0, GROUND_DECEL)
+				elif not on_ground:
+					_apply_air_horizontal(move_dir)
+				if not on_ground:
+					vel.y = minf(vel.y + GRAVITY, MAX_FALL_SPEED)
+				_process_ability_block_breaks()
+				_move_and_collide()
+				_check_hazards()
+				_sync_visual()
+				return
+			else:
+				state = State.IDLE if on_ground else State.FALL
+				state_frames = 0
 
 	# Check double-tap dash initiation on ground (track both tap press and release)
 	if on_ground and not in_water:
@@ -485,6 +599,10 @@ func step_physics() -> void:
 			_inhaling = true
 			state = State.INHALE
 			state_frames = 0
+		elif b_just and _active_ability != null:
+			_active_ability.start_attack(facing_dir, true, _is_running, pos)
+			state = State.ABILITY_ATTACK
+			state_frames = 0
 		elif a_just:
 			_start_jump()
 		else:
@@ -500,6 +618,10 @@ func step_physics() -> void:
 		if b_just and copy_ability == Constants.CopyAbility.NONE:
 			_inhaling = true
 			state = State.INHALE
+			state_frames = 0
+		elif b_just and _active_ability != null:
+			_active_ability.start_attack(facing_dir, false, _is_running, pos)
+			state = State.ABILITY_ATTACK
 			state_frames = 0
 		elif up_just or a_just:
 			_hovering = true
@@ -542,10 +664,28 @@ func _swallow_cargo() -> void:
 	has_cargo = false
 	cargo_ability = Constants.CopyAbility.NONE
 	if gained != Constants.CopyAbility.NONE:
-		copy_ability = gained
-		EventBus.copy_ability_changed.emit(copy_ability)
+		equip_copy_ability(gained)
 	state = State.IDLE
 	state_frames = 0
+
+
+func _process_ability_block_breaks() -> void:
+	if _level_map == null or _active_ability == null or not _active_ability.is_active():
+		return
+	var boxes: Array[Dictionary] = _active_ability.get_active_hitboxes()
+	for box: Dictionary in boxes:
+		if not bool(box.get("active", false)) or not bool(box.get("breaks_blocks", false)):
+			continue
+		var rect: Rect2 = box["rect"] as Rect2
+		var min_mx: int = int(floor(rect.position.x / float(Constants.METATILE_SIZE)))
+		var max_mx: int = int(floor((rect.position.x + rect.size.x) / float(Constants.METATILE_SIZE)))
+		var min_my: int = int(floor(rect.position.y / float(Constants.METATILE_SIZE)))
+		var max_my: int = int(floor((rect.position.y + rect.size.y) / float(Constants.METATILE_SIZE)))
+		for my: int in range(min_my, max_my + 1):
+			for mx: int in range(min_mx, max_mx + 1):
+				var col: int = _level_map.get_collision_at_tile(mx, my)
+				if col == Constants.TileCollision.BREAKABLE_STAR or col == Constants.TileCollision.BOMB_BLOCK:
+					_level_map.break_metatile_at(mx, my)
 
 
 func _apply_ground_horizontal(move_dir: int, max_speed: float) -> void:
@@ -737,6 +877,9 @@ func _check_hazards() -> void:
 
 func _sync_visual() -> void:
 	position = pos
+	if _active_ability != null:
+		_active_ability.position = Vector2.ZERO
+		_active_ability.sync_visuals()
 	if _sprite != null:
 		_sprite.flip_h = facing_dir < 0
 		if invuln_frames > 0:

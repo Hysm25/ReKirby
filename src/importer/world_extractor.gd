@@ -48,7 +48,9 @@ const B5_CHR_R5_TABLE: int = 0x9618
 const B19_ACTOR_ID_TABLE: int = 0xA9D2
 const B19_ACTOR_SUBTYPE_TABLE: int = 0xAAD2
 const B19_BG3_OVERRIDE_ROOMS: int = 0xA766
+const B56_HUD_PALETTE_ADDR: int = 0xB1CA # 4 HUD BG palettes (0..3) at $B1CA..$B1D9
 const B56_KIRBY_PALETTE_ADDR: int = 0xB1DA # Kirby default SP0 palette [0F, 35, 25, 0F]
+const B56_SP_EFFECT_PALETTE_ADDR: int = 0xB1DE # Fire/Star/Beam sprite palettes at $B1DE..$B1E9
 
 
 class WorldExtractionResult extends RefCounted:
@@ -434,14 +436,14 @@ static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
 
 	var mapper: MMC3Mapper = MMC3Mapper.new(prg_data, PackedByteArray())
 
-	# Extract Kirby's default SP0 palette from Bank 56 ($B1D2: 0F, 30, 35, 25)
+	# Extract HUD & Sprite palettes from Bank 56 ($B1CA..$B1E9)
 	_map_r7(mapper, Constants.PRG_BANK_HUD_PALETTES)
-	var kirby_pal_raw: PackedByteArray = mapper.read_prg_slice(B56_KIRBY_PALETTE_ADDR, 4)
+	var hud_pal_raw: PackedByteArray = mapper.read_prg_slice(B56_HUD_PALETTE_ADDR, 32)
 	var kirby_palette: Array[int] = [
-		kirby_pal_raw[0] & 0x3F,
-		kirby_pal_raw[1] & 0x3F,
-		kirby_pal_raw[2] & 0x3F,
-		kirby_pal_raw[3] & 0x3F,
+		hud_pal_raw[16] & 0x3F,
+		hud_pal_raw[17] & 0x3F,
+		hud_pal_raw[18] & 0x3F,
+		hud_pal_raw[19] & 0x3F,
 	]
 
 	var prop_table: Array[int] = extract_metatile_property_table(mapper)
@@ -450,9 +452,35 @@ static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
 		return result
 	result.property_table = prop_table
 
-	# Hardware 2C02 diagnostic ramp + Kirby SP0 palette
+	# Hardware 2C02 diagnostic ramp + extracted HUD & Kirby SP palettes
 	result.palettes["ppu_grayscale"] = [0x0F, 0x00, 0x10, 0x30]
 	result.palettes["kirby_default"] = kirby_palette
+	for hud_idx: int in range(4):
+		var off: int = hud_idx * 4
+		result.palettes["hud_bg_%d" % hud_idx] = [
+			hud_pal_raw[off] & 0x3F,
+			hud_pal_raw[off + 1] & 0x3F,
+			hud_pal_raw[off + 2] & 0x3F,
+			hud_pal_raw[off + 3] & 0x3F,
+		]
+	result.palettes["hud_sp_fire"] = [
+		hud_pal_raw[20] & 0x3F,
+		hud_pal_raw[21] & 0x3F,
+		hud_pal_raw[22] & 0x3F,
+		hud_pal_raw[23] & 0x3F,
+	]
+	result.palettes["hud_sp_star"] = [
+		hud_pal_raw[24] & 0x3F,
+		hud_pal_raw[25] & 0x3F,
+		hud_pal_raw[26] & 0x3F,
+		hud_pal_raw[27] & 0x3F,
+	]
+	result.palettes["hud_sp_beam"] = [
+		hud_pal_raw[28] & 0x3F,
+		hud_pal_raw[29] & 0x3F,
+		hud_pal_raw[30] & 0x3F,
+		hud_pal_raw[31] & 0x3F,
+	]
 
 	# Traverse World 1 dynamically starting at Room 0 (Vegetable Valley Hub)
 	var queue: Array[int] = [Constants.WORLD1_HUB_ROOM_ID]

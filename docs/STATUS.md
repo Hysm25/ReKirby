@@ -5,8 +5,8 @@
 
 ---
 
-## Current Workspace Snapshot (Phase 2 Core Physics & Level Renderer Complete)
-- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM & World 1 PRG-ROM Extraction Pipeline (`src/importer/`), Mandatory ROM Setup Guard + Playable World 1 Room Boot (`src/main.gd`, `src/main.tscn`), Phase 2 `LevelMap` & `KirbyController` (`src/game/level_map.gd`, `src/game/kirby_controller.gd`), and headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`, `tests/test_physics.gd`) implemented and passing 100% (`146/146`).
+## Current Workspace Snapshot (Phase 2 Complete — Core Physics, Copy Abilities, HUD & Touch Overlay)
+- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM & World 1 PRG-ROM Extraction Pipeline (`src/importer/`), Mandatory ROM Setup Guard + Playable World 1 Room Boot (`src/main.gd`, `src/main.tscn`), Phase 2 `LevelMap`, `KirbyController`, Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`), Scanline IRQ Split `HUDRenderer`, and `VirtualGamepad` (`src/game/`), plus headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`, `tests/test_physics.gd`) implemented and passing 100% (`183/183`).
 - **Completed So Far**:
   - [x] Audited workspace directory, relocated local ROM into git-ignored `rom/`, and verified `rom/*.nes` exclusion.
   - [x] Established clean-room `.gitignore` and `AGENTS.md` execution blueprint.
@@ -32,17 +32,17 @@
 - [x] **Level & Table Extraction (`src/importer/world_extractor.gd`)**: Dynamic PRG-ROM extraction via `MMC3Mapper` + `HALDecompressor` of 16x16 metatile dictionaries (tiles, 2-bit palettes, NES collision shapes), all 21 World 1 rooms (`R000` Hub, Stages 1-1..1-4 `R043..R060`, Whispy Woods Boss `R030`, Museum `R024`), BG/Sprite subpalettes, 1KB CHR bank bindings, doors, and entity spawns cached to `user://nes_data/world1_data.json`.
 - [x] **Verification (`tests/test_importer.gd`)**: 91 assertions passing (`0` failed) covering HAL LZ77/RLE opcodes, 2BPP decoding, MMC3 bank mapping, collision mapping, `InputManager` 60 TPS/SOCD, `ContentRegistry` guard, live ROM + World 1 extraction, and `user://nes_data/` disk reload.
 
-### Phase 2: Core Physics, Metatiles & Copy Abilities (In Progress)
+### Phase 2: Core Physics, Metatiles & Copy Abilities (Completed)
 - [x] **16x16 Metatile Physics (`src/game/level_map.gd`)**: Solid blocks, one-way platforms, 45° & 26.5° slopes, water zones, star blocks, spikes, and door transitions.
-- [x] **Kirby Core Controller (`src/game/kirby_controller.gd`)**: Walk, double-tap Run, Crouch, Slide, Jump, Hover + Air Puff, Swim + Water Gun, Inhale cone, Mouth-Full state, Star Spit, Swallow, and Damage/i-frames (wired into `src/main.gd`).
-- [ ] **Copy Abilities (`src/game/abilities/`)**:
-  - [ ] `Sword` (slash, air spin, dash slash)
-  - [ ] `Fire` (continuous flame stream)
-  - [ ] `Spark` (360° electric barrier)
-  - [ ] `Beam` (5-orb sweeping curved whip)
-- [ ] **Scanline IRQ Split HUD (`src/game/hud_renderer.gd`)**: Fixed `Y = 192..239` status bar with HP pips, lives, score, and active Copy Ability card portrait.
-- [ ] **Mobile & Desktop Controls (`src/game/virtual_gamepad.gd`)**: Keyboard, gamepad, and Android touch overlay.
-- [ ] **Verification (`tests/test_physics.gd`)**: Slope heightmap, inhale capture, star spit collisions (`53/53` passing); pending all 4 Copy Ability hitboxes.
+- [x] **Kirby Core Controller (`src/game/kirby_controller.gd`)**: Walk, double-tap Run, Crouch, Slide, Jump, Hover + Air Puff, Swim + Water Gun, Inhale cone, Mouth-Full state, Star Spit, Swallow, Ability drop (`SELECT`), and Damage/i-frames (wired into `src/main.gd`).
+- [x] **Copy Abilities (`src/game/abilities/`)**:
+  - [x] `Sword` (slash, air spin, dash slash)
+  - [x] `Fire` (continuous flame stream)
+  - [x] `Spark` (360° electric barrier)
+  - [x] `Beam` (5-orb sweeping curved whip)
+- [x] **Scanline IRQ Split HUD (`src/game/hud_renderer.gd`)**: Fixed `Y = 192..239` status bar with HP pips, lives, score, boss HP, and active Copy Ability card portrait via ROM CHR + Bank 56 palettes.
+- [x] **Mobile & Desktop Controls (`src/game/virtual_gamepad.gd`)**: Keyboard, gamepad, and Android touch overlay.
+- [x] **Verification (`tests/test_physics.gd`)**: Slope heightmap, inhale capture, star spit collisions, HUD/touch routing, and all 4 Copy Ability hitboxes (`88/88` passing; `183/183` total).
 
 ### Phase 3: 2A03 APU 5-Channel Audio Engine (Pending)
 - [ ] **APU Synthesizer (`src/audio/apu_engine.gd`)**:

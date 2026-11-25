@@ -128,6 +128,20 @@ func load_from_dicts(room_data: Dictionary, tileset_data: Dictionary) -> bool:
 	return true
 
 
+func _build_palette_rgb_lut() -> PackedByteArray:
+	var lut: PackedByteArray = PackedByteArray()
+	lut.resize(4 * 4 * 3)
+	for p_idx: int in range(4):
+		var pal: PackedColorArray = _bg_palettes[p_idx]
+		for c_idx: int in range(4):
+			var col: Color = pal[c_idx]
+			var off: int = (p_idx * 4 + c_idx) * 3
+			lut[off] = clampi(int(round(col.r * 255.0)), 0, 255)
+			lut[off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)
+			lut[off + 2] = clampi(int(round(col.b * 255.0)), 0, 255)
+	return lut
+
+
 func _rebuild_room_texture() -> void:
 	if not ContentRegistry.is_ready() or _bg_chr_banks.size() < 4 or _bg_palettes.size() < 4:
 		return
@@ -139,6 +153,7 @@ func _rebuild_room_texture() -> void:
 			return
 		chr_rgba_banks.append(bank_img.get_data())
 
+	var pal_lut: PackedByteArray = _build_palette_rgb_lut()
 	_room_image = Image.create(_width_px, _height_px, false, Image.FORMAT_RGBA8)
 	var out_rgba: PackedByteArray = PackedByteArray()
 	out_rgba.resize(_width_px * _height_px * 4)
@@ -146,7 +161,7 @@ func _rebuild_room_texture() -> void:
 	for my: int in range(_height_metatiles):
 		for mx: int in range(_width_metatiles):
 			var mt_id: int = _metatile_grid[my * _width_metatiles + mx]
-			_stamp_metatile_into_buffer(mt_id, mx, my, chr_rgba_banks, out_rgba)
+			_stamp_metatile_into_buffer(mt_id, mx, my, chr_rgba_banks, pal_lut, out_rgba)
 
 	_room_image = Image.create_from_data(_width_px, _height_px, false, Image.FORMAT_RGBA8, out_rgba)
 	_room_texture = ImageTexture.create_from_image(_room_image)
@@ -159,13 +174,14 @@ func _stamp_metatile_into_buffer(
 	mx: int,
 	my: int,
 	chr_rgba_banks: Array[PackedByteArray],
+	pal_lut: PackedByteArray,
 	out_rgba: PackedByteArray
 ) -> void:
 	if mt_id < 0 or mt_id >= _tileset_metatiles.size():
 		return
 	var mt: Dictionary = _tileset_metatiles[mt_id]
 	var pal_idx: int = clampi(int(mt.get("palette", 0)), 0, 3)
-	var palette: PackedColorArray = _bg_palettes[pal_idx]
+	var pal_base: int = pal_idx * 12
 	var corner_tiles: PackedInt32Array = PackedInt32Array([
 		int(mt.get("tl", 0)),
 		int(mt.get("tr", 0)),
@@ -190,12 +206,11 @@ func _stamp_metatile_into_buffer(
 			var dst_row_off: int = ((dst_qy + py) * _width_px + dst_qx) * 4
 			for px: int in range(Constants.TILE_SIZE):
 				var gray: int = src_bytes[src_row_off + px * 4]
-				var color_idx: int = clampi((gray + 42) / 85, 0, 3)
-				var col: Color = palette[color_idx]
+				var lut_off: int = pal_base + clampi((gray + 42) / 85, 0, 3) * 3
 				var dst_off: int = dst_row_off + px * 4
-				out_rgba[dst_off] = clampi(int(round(col.r * 255.0)), 0, 255)
-				out_rgba[dst_off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)
-				out_rgba[dst_off + 2] = clampi(int(round(col.b * 255.0)), 0, 255)
+				out_rgba[dst_off] = pal_lut[lut_off]
+				out_rgba[dst_off + 1] = pal_lut[lut_off + 1]
+				out_rgba[dst_off + 2] = pal_lut[lut_off + 2]
 				out_rgba[dst_off + 3] = 255
 
 
@@ -371,8 +386,9 @@ func break_metatile_at(mx: int, my: int) -> bool:
 			if bank_img == null:
 				return true
 			chr_rgba_banks.append(bank_img.get_data())
+		var pal_lut: PackedByteArray = _build_palette_rgb_lut()
 		var buf: PackedByteArray = _room_image.get_data()
-		_stamp_metatile_into_buffer(0, mx, my, chr_rgba_banks, buf)
+		_stamp_metatile_into_buffer(0, mx, my, chr_rgba_banks, pal_lut, buf)
 		_room_image.set_data(_width_px, _height_px, false, Image.FORMAT_RGBA8, buf)
 		_room_texture.update(_room_image)
 	return true

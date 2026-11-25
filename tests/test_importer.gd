@@ -340,6 +340,10 @@ func _test_live_rom_ingestion_if_present() -> void:
 		_assert_eq_int(kirby_pal[1], 0x35, "Kirby default palette light pink index is 0x35")
 		_assert_eq_int(kirby_pal[2], 0x25, "Kirby default palette dark pink index is 0x25")
 		_assert_eq_int(kirby_pal[3], 0x0F, "Kirby default palette outline index is 0x0F")
+	var hud_bg0: PackedInt32Array = ContentRegistry.get_palette_indices("hud_bg_0")
+	_assert_eq_int(hud_bg0.size(), 4, "HUD BG0 palette extracted from Bank 56 with 4 entries")
+	if hud_bg0.size() == 4:
+		_assert_eq_int(hud_bg0[1], 0x35, "HUD BG0 panel color is light pink 0x35")
 
 	# Clean up temporary test extraction directory
 	_cleanup_dir_recursive(test_user_dir)
