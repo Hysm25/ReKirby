@@ -48,7 +48,7 @@ const B5_CHR_R5_TABLE: int = 0x9618
 const B19_ACTOR_ID_TABLE: int = 0xA9D2
 const B19_ACTOR_SUBTYPE_TABLE: int = 0xAAD2
 const B19_BG3_OVERRIDE_ROOMS: int = 0xA766
-const B56_KIRBY_PALETTE_ADDR: int = 0xB1D2 # Kirby default SP0 palette [0F, 30, 35, 25]
+const B56_KIRBY_PALETTE_ADDR: int = 0xB1DA # Kirby default SP0 palette [0F, 35, 25, 0F]
 
 
 class WorldExtractionResult extends RefCounted:

@@ -5,8 +5,8 @@
 
 ---
 
-## Current Workspace Snapshot (Phase 1.5 PRG Table & Level Extraction Complete)
-- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM & World 1 PRG-ROM Extraction Pipeline (`src/importer/` including `WorldExtractor`), Mandatory ROM Setup Guard (`src/main.gd`, `src/main.tscn`), and headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`) implemented and passing 100% (`91/91`).
+## Current Workspace Snapshot (Phase 2 Core Physics & Level Renderer Complete)
+- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM & World 1 PRG-ROM Extraction Pipeline (`src/importer/`), Mandatory ROM Setup Guard + Playable World 1 Room Boot (`src/main.gd`, `src/main.tscn`), Phase 2 `LevelMap` & `KirbyController` (`src/game/level_map.gd`, `src/game/kirby_controller.gd`), and headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`, `tests/test_physics.gd`) implemented and passing 100% (`146/146`).
 - **Completed So Far**:
   - [x] Audited workspace directory, relocated local ROM into git-ignored `rom/`, and verified `rom/*.nes` exclusion.
   - [x] Established clean-room `.gitignore` and `AGENTS.md` execution blueprint.
@@ -32,9 +32,9 @@
 - [x] **Level & Table Extraction (`src/importer/world_extractor.gd`)**: Dynamic PRG-ROM extraction via `MMC3Mapper` + `HALDecompressor` of 16x16 metatile dictionaries (tiles, 2-bit palettes, NES collision shapes), all 21 World 1 rooms (`R000` Hub, Stages 1-1..1-4 `R043..R060`, Whispy Woods Boss `R030`, Museum `R024`), BG/Sprite subpalettes, 1KB CHR bank bindings, doors, and entity spawns cached to `user://nes_data/world1_data.json`.
 - [x] **Verification (`tests/test_importer.gd`)**: 91 assertions passing (`0` failed) covering HAL LZ77/RLE opcodes, 2BPP decoding, MMC3 bank mapping, collision mapping, `InputManager` 60 TPS/SOCD, `ContentRegistry` guard, live ROM + World 1 extraction, and `user://nes_data/` disk reload.
 
-### Phase 2: Core Physics, Metatiles & Copy Abilities (Pending)
-- [ ] **16x16 Metatile Physics (`src/game/level_map.gd`)**: Solid blocks, one-way platforms, 45° & 26.5° slopes, water zones, star blocks, spikes, and door transitions.
-- [ ] **Kirby Core Controller (`src/game/kirby_controller.gd`)**: Walk, double-tap Run, Crouch, Slide, Jump, Hover + Air Puff, Swim + Water Gun, Inhale cone, Mouth-Full state, Star Spit, Swallow, and Damage/i-frames.
+### Phase 2: Core Physics, Metatiles & Copy Abilities (In Progress)
+- [x] **16x16 Metatile Physics (`src/game/level_map.gd`)**: Solid blocks, one-way platforms, 45° & 26.5° slopes, water zones, star blocks, spikes, and door transitions.
+- [x] **Kirby Core Controller (`src/game/kirby_controller.gd`)**: Walk, double-tap Run, Crouch, Slide, Jump, Hover + Air Puff, Swim + Water Gun, Inhale cone, Mouth-Full state, Star Spit, Swallow, and Damage/i-frames (wired into `src/main.gd`).
 - [ ] **Copy Abilities (`src/game/abilities/`)**:
   - [ ] `Sword` (slash, air spin, dash slash)
   - [ ] `Fire` (continuous flame stream)
@@ -42,7 +42,7 @@
   - [ ] `Beam` (5-orb sweeping curved whip)
 - [ ] **Scanline IRQ Split HUD (`src/game/hud_renderer.gd`)**: Fixed `Y = 192..239` status bar with HP pips, lives, score, and active Copy Ability card portrait.
 - [ ] **Mobile & Desktop Controls (`src/game/virtual_gamepad.gd`)**: Keyboard, gamepad, and Android touch overlay.
-- [ ] **Verification (`tests/test_physics.gd`)**: Slope heightmap, inhale capture, star spit collisions, and all 4 Copy Ability hitboxes.
+- [ ] **Verification (`tests/test_physics.gd`)**: Slope heightmap, inhale capture, star spit collisions (`53/53` passing); pending all 4 Copy Ability hitboxes.
 
 ### Phase 3: 2A03 APU 5-Channel Audio Engine (Pending)
 - [ ] **APU Synthesizer (`src/audio/apu_engine.gd`)**:

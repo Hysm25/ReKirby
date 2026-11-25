@@ -3,14 +3,22 @@ extends Node2D
 
 const Constants = preload("res://src/core/constants.gd")
 const ROMImporter = preload("res://src/importer/rom_importer.gd")
+const LevelMap = preload("res://src/game/level_map.gd")
+const KirbyController = preload("res://src/game/kirby_controller.gd")
+
+const DEFAULT_START_ROOM_ID: int = 43
 
 var _current_state: int = Constants.GameState.ROM_SETUP
 var _stage_root: Control = null
 var _missing_rom_panel: Control = null
-var _boot_verified_panel: Control = null
+var _gameplay_panel: Control = null
+var _playfield_clip: Control = null
+var _world_container: Node2D = null
+var _level_map: LevelMap = null
+var _kirby: KirbyController = null
 var _status_label: Label = null
-var _verified_header_label: Label = null
-var _chr_preview_row: HBoxContainer = null
+var _hud_label: Label = null
+var _camera_offset: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
@@ -22,6 +30,12 @@ func _physics_process(_delta: float) -> void:
 	if _current_state == Constants.GameState.ROM_SETUP:
 		return
 	InputManager.step_frame()
+	if _kirby != null and _level_map != null and _current_state == Constants.GameState.PLAYING:
+		_kirby.step_physics()
+		_kirby.consume_spawned_projectiles()
+		_check_door_transition()
+		_update_camera_scroll()
+		_update_hud_debug_text()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -61,7 +75,7 @@ func _build_ui_layout() -> void:
 	canvas.add_child(_stage_root)
 
 	_build_missing_rom_panel()
-	_build_boot_verified_panel()
+	_build_gameplay_panel()
 
 
 func _build_missing_rom_panel() -> void:
@@ -113,48 +127,39 @@ func _build_missing_rom_panel() -> void:
 	vbox.add_child(retry_btn)
 
 
-func _build_boot_verified_panel() -> void:
-	_boot_verified_panel = Control.new()
-	_boot_verified_panel.name = "BootVerifiedScreen"
-	_boot_verified_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_boot_verified_panel.visible = false
-	_stage_root.add_child(_boot_verified_panel)
+func _build_gameplay_panel() -> void:
+	_gameplay_panel = Control.new()
+	_gameplay_panel.name = "GameplayScreen"
+	_gameplay_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_gameplay_panel.visible = false
+	_stage_root.add_child(_gameplay_panel)
 
-	# Top 256x192 scrolling playfield region (above MMC3 scanline IRQ Y=192)
-	var playfield_bg: ColorRect = ColorRect.new()
-	playfield_bg.color = Color(0.0, 0.0, 0.0, 1.0)
-	playfield_bg.position = Vector2(0, 0)
-	playfield_bg.size = Vector2(Constants.PLAYFIELD_WIDTH, Constants.PLAYFIELD_HEIGHT)
-	_boot_verified_panel.add_child(playfield_bg)
+	# Top 256x192 clipped scrolling playfield region (MMC3 scanline IRQ split Y=192)
+	_playfield_clip = Control.new()
+	_playfield_clip.name = "PlayfieldClip256x192"
+	_playfield_clip.position = Vector2(0, 0)
+	_playfield_clip.size = Vector2(Constants.PLAYFIELD_WIDTH, Constants.PLAYFIELD_HEIGHT)
+	_playfield_clip.clip_contents = true
+	_gameplay_panel.add_child(_playfield_clip)
 
-	_verified_header_label = Label.new()
-	_verified_header_label.position = Vector2(8, 8)
-	_verified_header_label.size = Vector2(Constants.PLAYFIELD_WIDTH - 16, 48)
-	_verified_header_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_verified_header_label.add_theme_font_size_override("font_size", 8)
-	_verified_header_label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95, 1.0))
-	_verified_header_label.text = "REKIRBY PHASE 1.5: ROM INGESTION VERIFIED\n256x192 PLAYFIELD + 256x1KB CHR BANKS READY"
-	_boot_verified_panel.add_child(_verified_header_label)
+	_world_container = Node2D.new()
+	_world_container.name = "WorldContainer"
+	_playfield_clip.add_child(_world_container)
 
-	_chr_preview_row = HBoxContainer.new()
-	_chr_preview_row.position = Vector2(16, 64)
-	_chr_preview_row.add_theme_constant_override("separation", 8)
-	_boot_verified_panel.add_child(_chr_preview_row)
-
-	# Bottom 256x48 fixed HUD region (MMC3 scanline IRQ split Y=192..239)
+	# Bottom 256x48 fixed HUD region (Y=192..239)
 	var hud_bg: ColorRect = ColorRect.new()
 	hud_bg.color = Color(0.14, 0.09, 0.16, 1.0)
 	hud_bg.position = Vector2(0, Constants.HUD_Y)
 	hud_bg.size = Vector2(Constants.NATIVE_WIDTH, Constants.HUD_HEIGHT)
-	_boot_verified_panel.add_child(hud_bg)
+	_gameplay_panel.add_child(hud_bg)
 
-	var hud_lbl: Label = Label.new()
-	hud_lbl.position = Vector2(8, Constants.HUD_Y + 8)
-	hud_lbl.size = Vector2(Constants.NATIVE_WIDTH - 16, Constants.HUD_HEIGHT - 16)
-	hud_lbl.add_theme_font_size_override("font_size", 8)
-	hud_lbl.add_theme_color_override("font_color", Color(1.0, 0.72, 0.85, 1.0))
-	hud_lbl.text = "HUD SPLIT Y=192 (48PX FIXED)\n[PHASE 2: PHYSICS & ABILITIES PENDING]"
-	_boot_verified_panel.add_child(hud_lbl)
+	_hud_label = Label.new()
+	_hud_label.position = Vector2(8, Constants.HUD_Y + 6)
+	_hud_label.size = Vector2(Constants.NATIVE_WIDTH - 16, Constants.HUD_HEIGHT - 12)
+	_hud_label.add_theme_font_size_override("font_size", 8)
+	_hud_label.add_theme_color_override("font_color", Color(1.0, 0.72, 0.85, 1.0))
+	_hud_label.text = "HUD SPLIT Y=192 (48PX FIXED)"
+	_gameplay_panel.add_child(_hud_label)
 
 
 func _attempt_rom_boot() -> void:
@@ -175,7 +180,7 @@ func _enter_missing_rom_state() -> void:
 	_current_state = Constants.GameState.ROM_SETUP
 	set_physics_process(false)
 	_missing_rom_panel.visible = true
-	_boot_verified_panel.visible = false
+	_gameplay_panel.visible = false
 	if _status_label != null and _status_label.text.is_empty():
 		_status_label.text = "Status: Waiting for valid ROM in %s" % Constants.ROM_DIR
 	EventBus.game_state_changed.emit(_current_state, prev)
@@ -183,37 +188,73 @@ func _enter_missing_rom_state() -> void:
 
 func _enter_ready_state() -> void:
 	var prev: int = _current_state
-	_current_state = Constants.GameState.TITLE
-	set_physics_process(true)
 	_missing_rom_panel.visible = false
-	_boot_verified_panel.visible = true
-	if _verified_header_label != null and ContentRegistry.is_ready():
-		var r_count: int = ContentRegistry.get_room_ids().size()
-		var t_count: int = ContentRegistry.get_tileset_ids().size()
-		_verified_header_label.text = (
-			"REKIRBY PHASE 1.5: ROM INGESTION VERIFIED\n"
-			+ "%d W1 ROOMS | %d TILESETS | 256 CHR BANKS" % [r_count, t_count]
-		)
-	_populate_chr_preview()
-	EventBus.game_state_changed.emit(_current_state, prev)
+	_gameplay_panel.visible = true
+
+	if _level_map == null:
+		_level_map = LevelMap.new()
+		_level_map.name = "LevelMap"
+		_world_container.add_child(_level_map)
+	if _kirby == null:
+		_kirby = KirbyController.new()
+		_kirby.name = "KirbyController"
+		_world_container.add_child(_kirby)
+
+	var start_room: int = DEFAULT_START_ROOM_ID if ContentRegistry.has_room(DEFAULT_START_ROOM_ID) else Constants.WORLD1_HUB_ROOM_ID
+	if _level_map.load_room(start_room):
+		_kirby.setup(_level_map, Vector2(40.0, 128.0))
+		_update_camera_scroll()
+		_current_state = Constants.GameState.PLAYING
+		set_physics_process(true)
+		_update_hud_debug_text()
+		EventBus.room_changed.emit(1, 1, start_room)
+		EventBus.game_state_changed.emit(_current_state, prev)
+	else:
+		_enter_missing_rom_state()
 
 
-func _populate_chr_preview() -> void:
-	if _chr_preview_row == null or not ContentRegistry.is_ready():
+func _check_door_transition() -> void:
+	if not InputManager.is_just_pressed(Constants.NesButton.UP):
 		return
-	for child: Node in _chr_preview_row.get_children():
-		child.queue_free()
+	var door: Dictionary = _level_map.find_door_at_pixel(_kirby.pos.x, _kirby.pos.y - 8.0)
+	if door.is_empty():
+		return
+	var dst_room: int = int(door.get("dest_room_id", -1))
+	if not ContentRegistry.has_room(dst_room):
+		return
+	var dst_scr: int = int(door.get("dst_screen", 0))
+	var dst_x: int = int(door.get("dst_x", 2))
+	var dst_y: int = int(door.get("dst_y", 6))
+	if _level_map.load_room(dst_room):
+		var spawn_px: float = float((dst_scr * Constants.ROOM_SCREEN_COLS + dst_x) * Constants.METATILE_SIZE + 8)
+		var spawn_py: float = float((dst_y + 1) * Constants.METATILE_SIZE)
+		_kirby.setup(_level_map, Vector2(spawn_px, spawn_py))
+		_update_camera_scroll()
+		EventBus.room_changed.emit(1, 1, dst_room)
 
-	var sample_banks: PackedInt32Array = PackedInt32Array([0, 4, 32])
-	for bank_idx: int in sample_banks:
-		var tex: ImageTexture = ContentRegistry.get_chr_bank_texture(bank_idx)
-		if tex == null:
-			continue
-		var tex_rect: TextureRect = TextureRect.new()
-		tex_rect.texture = tex
-		tex_rect.custom_minimum_size = Vector2(64, 64)
-		tex_rect.stretch_mode = TextureRect.STRETCH_KEEP
-		_chr_preview_row.add_child(tex_rect)
+
+func _update_camera_scroll() -> void:
+	if _level_map == null or _kirby == null or _world_container == null:
+		return
+	var max_cam_x: float = maxf(0.0, float(_level_map.get_width_pixels() - Constants.PLAYFIELD_WIDTH))
+	var max_cam_y: float = maxf(0.0, float(_level_map.get_height_pixels() - Constants.PLAYFIELD_HEIGHT))
+	var target_x: float = clampf(_kirby.pos.x - float(Constants.PLAYFIELD_WIDTH) * 0.5, 0.0, max_cam_x)
+	var target_y: float = clampf(_kirby.pos.y - float(Constants.PLAYFIELD_HEIGHT) * 0.6, 0.0, max_cam_y)
+	_camera_offset = Vector2(roundf(target_x), roundf(target_y))
+	_world_container.position = -_camera_offset
+
+
+func _update_hud_debug_text() -> void:
+	if _hud_label == null or _kirby == null or _level_map == null:
+		return
+	_hud_label.text = "KIRBY HP %d/%d  AB:%d  ROOM:%d\nPOS (%d,%d)" % [
+		_kirby.hp,
+		_kirby.max_hp,
+		_kirby.copy_ability,
+		_level_map.get_room_id(),
+		int(_kirby.pos.x),
+		int(_kirby.pos.y),
+	]
 
 
 func _on_retry_pressed() -> void:

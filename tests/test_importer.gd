@@ -337,7 +337,9 @@ func _test_live_rom_ingestion_if_present() -> void:
 	var kirby_pal: PackedInt32Array = ContentRegistry.get_palette_indices("kirby_default")
 	_assert_eq_int(kirby_pal.size(), 4, "Kirby default palette extracted with 4 entries")
 	if kirby_pal.size() == 4:
-		_assert_eq_int(kirby_pal[3], 0x25, "Kirby default palette main pink index is 0x25")
+		_assert_eq_int(kirby_pal[1], 0x35, "Kirby default palette light pink index is 0x35")
+		_assert_eq_int(kirby_pal[2], 0x25, "Kirby default palette dark pink index is 0x25")
+		_assert_eq_int(kirby_pal[3], 0x0F, "Kirby default palette outline index is 0x0F")
 
 	# Clean up temporary test extraction directory
 	_cleanup_dir_recursive(test_user_dir)
