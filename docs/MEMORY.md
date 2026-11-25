@@ -34,8 +34,12 @@ updated: 2026-11-25
 - **Primary Shell**: **`fish`** across both Linux desktop and Termux PRoot.
   - Interactive terminal commands must strictly use `fish` syntax (e.g. `set -gx VAR val`, `set -a PATH /path`).
   - Standalone scripts must use POSIX/Bash with explicit shebang (`#!/usr/bin/env bash`).
-- **Safe Execution Policy**:
-  - Always request explicit user confirmation before executing destructive operations (`rm -rf`, overwriting unversioned files), persistent OS/system modifications, package removals, or `git push` to remote repositories.
+- **Safe Execution Policy & Repository Git Override**:
+  - **Authorized Auto-Commit & Auto-Push (`ReKirby`)**: Per explicit user authorization (2026-11-25), the agent is authorized to run `git add`, `git commit`, and `git push origin main` automatically at the end of each completed milestone/task **without** asking for per-push confirmation, provided:
+    1. `git status` confirms zero `.nes`, `.bin`, `.obsidian/`, `.godot/`, or runtime extraction files are staged/tracked.
+    2. All verification checks (`godot --headless --path . --quit` and `tests/test_runner.gd` once present) pass 100%.
+    3. Changes are batched into clean milestone commits (never micro-commits mid-task).
+  - **Other Destructive Ops**: Always request explicit user confirmation before executing destructive file operations (`rm -rf`, overwriting unversioned files), persistent OS/system modifications, or package removals.
 
 ---
 
@@ -49,12 +53,13 @@ updated: 2026-11-25
 ---
 
 ## 4. Active Session Log (ReKirby)
-- **[2026-11-25] Workspace Audit & Clean-Room Documentation Reset**:
+- **[2026-11-25] Workspace Audit, Git Foundation & Clean-Room Policy**:
   - Audited `/sdcard/Documents/Codes/ReKirby`: confirmed workspace currently contains only `Kirby's Adventure (USA) (Rev A).nes` and `docs/`. No Godot project or source files exist yet.
   - Verified ROM iNES header (`4E45531A20204200...`, Mapper 4 MMC3, 512 KB PRG-ROM, 256 KB CHR-ROM) and recorded SHA-256 / CRC32 checksums.
   - Preserved `docs/SOUL.md` and `docs/USER.md` untouched.
-  - Created `.gitignore` ignoring `*.nes`, `rom/*.nes`, `rom/*.bin`, `.godot/`, and runtime extraction folders.
+  - Created `.gitignore` ignoring `*.nes`, `rom/*.nes`, `rom/*.bin`, `.godot/`, `.obsidian/`, and runtime extraction folders.
   - Rewrote `docs/ARCHITECTURE.md` from scratch for ReKirby (MMC3 banking, scanline HUD split, HAL LZ77/RLE decompression, 2BPP CHR/palette extraction, 16x16 metatiles + slopes, Kirby physics + Sword/Fire/Spark/Beam Copy Abilities, 5-channel 2A03 APU with DMC).
   - Reset `docs/STATUS.md` to the 4-phase Vertical Slice Roadmap (Phase 0–4) with accurate pre-implementation status.
   - Purged all legacy ReTetris session logs and disassembly notes from `docs/MEMORY.md` while keeping Hardware Constraints & Environment Quirks intact.
-  - **Next Step**: Review updated docs, move `Kirby's Adventure (USA) (Rev A).nes` into `rom/`, and begin Phase 0/1 (`project.godot` + ROM Extractor & Asset Importer).
+  - Initialized Git repository on `main`, added `origin` (`git@github.com:Hysm25/ReKirby.git`), created root `AGENTS.md` with coding invariants, verification gate, and user-authorized auto-commit/push policy, persisted `safe.directory` in `~/.gitconfig`, and pushed foundation commits to `origin main`.
+  - **Next Step**: Relocate `Kirby's Adventure (USA) (Rev A).nes` into `rom/` and begin Phase 0/1 (`project.godot` + ROM Extractor & Asset Importer).
