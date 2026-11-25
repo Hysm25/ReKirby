@@ -5,6 +5,7 @@ const TEST_SUITES: Array[String] = [
 	"res://tests/test_importer.gd",
 	"res://tests/test_physics.gd",
 	"res://tests/test_audio.gd",
+	"res://tests/test_vertical_slice.gd",
 ]
 
 

@@ -1,5 +1,5 @@
 extends Node2D
-## Root boot coordinator and Mandatory ROM Setup Guard for ReKirby.
+## Root boot coordinator, Mandatory ROM Setup Guard, and 60 TPS World 1 simulation loop.
 
 const Constants = preload("res://src/core/constants.gd")
 const ROMImporter = preload("res://src/importer/rom_importer.gd")
@@ -9,8 +9,16 @@ const HUDRenderer = preload("res://src/game/hud_renderer.gd")
 const VirtualGamepad = preload("res://src/game/virtual_gamepad.gd")
 const APUEngine = preload("res://src/audio/apu_engine.gd")
 const MusicPlayer = preload("res://src/audio/music_player.gd")
+const EnemyBase = preload("res://src/game/entities/enemy_base.gd")
+const StarProjectile = preload("res://src/game/entities/star_projectile.gd")
+const WhispyWoods = preload("res://src/game/entities/whispy_woods.gd")
 
 const DEFAULT_START_ROOM_ID: int = 43
+const BOSS_ROOM_ID: int = 30
+const DEFAULT_SPAWN_POS: Vector2 = Vector2(40.0, 128.0)
+const STAGE_CLEAR_BONUS: int = 2000
+const RESPAWN_DELAY_FRAMES: int = 60
+const VICTORY_RETURN_FRAMES: int = 90
 
 var _current_state: int = Constants.GameState.ROM_SETUP
 var _stage_root: Control = null
@@ -19,6 +27,8 @@ var _gameplay_panel: Control = null
 var _playfield_clip: Control = null
 var _world_container: Node2D = null
 var _level_map: LevelMap = null
+var _enemies_layer: Node2D = null
+var _projectiles_layer: Node2D = null
 var _kirby: KirbyController = null
 var _hud_renderer: HUDRenderer = null
 var _virtual_gamepad: VirtualGamepad = null
@@ -26,6 +36,17 @@ var _apu_engine: APUEngine = null
 var _music_player: MusicPlayer = null
 var _status_label: Label = null
 var _camera_offset: Vector2 = Vector2.ZERO
+
+var _enemies: Array[EnemyBase] = []
+var _projectiles: Array[StarProjectile] = []
+var _boss: WhispyWoods = null
+
+var _current_room_id: int = DEFAULT_START_ROOM_ID
+var _room_spawn_pos: Vector2 = DEFAULT_SPAWN_POS
+var _lives: int = 4
+var _score: int = 0
+var _defeat_frames: int = 0
+var _victory_frames: int = 0
 
 
 func _ready() -> void:
@@ -37,17 +58,276 @@ func _physics_process(_delta: float) -> void:
 	if _current_state == Constants.GameState.ROM_SETUP:
 		return
 	InputManager.step_frame()
-	if _kirby != null and _level_map != null and _current_state == Constants.GameState.PLAYING:
-		_kirby.step_physics()
-		_kirby.consume_spawned_projectiles()
-		_check_door_transition()
-		_update_camera_scroll()
-		if _hud_renderer != null:
-			_hud_renderer.refresh()
+	if _kirby != null and _level_map != null and (_current_state == Constants.GameState.PLAYING or _current_state == Constants.GameState.BOSS_FIGHT):
+		step_gameplay_frame()
 	if _music_player != null:
 		_music_player.step_frame()
 	if _apu_engine != null:
 		_apu_engine.step_audio_frame()
+
+
+func step_gameplay_frame() -> void:
+	if _kirby == null or _level_map == null:
+		return
+
+	if _victory_frames > 0:
+		_victory_frames -= 1
+		if _victory_frames == 0:
+			var hub_spawn: Vector2 = _level_map.screen_tile_to_pixel(1, 12, 5) + Vector2(8.0, 0.0)
+			if load_world_room(Constants.WORLD1_HUB_ROOM_ID, hub_spawn, true):
+				_update_camera_scroll()
+		return
+
+	_kirby.step_physics()
+	_spawn_projectile_list(_kirby.consume_spawned_projectiles())
+
+	if _kirby.state == KirbyController.State.DEFEAT:
+		_defeat_frames += 1
+		if _defeat_frames >= RESPAWN_DELAY_FRAMES:
+			_handle_kirby_respawn()
+		_update_camera_scroll()
+		if _hud_renderer != null:
+			_hud_renderer.refresh()
+		return
+	_defeat_frames = 0
+
+	var kirby_rect: Rect2 = _kirby.get_body_rect()
+	var kirby_mouth: Vector2 = Vector2(_kirby.pos.x, _kirby.pos.y - 8.0)
+	var kirby_hitboxes: Array[Dictionary] = _kirby.get_active_hitboxes()
+	var inhale_rect: Rect2 = Rect2()
+	var is_inhaling: bool = _kirby.state == KirbyController.State.INHALE
+	if is_inhaling and not kirby_hitboxes.is_empty():
+		inhale_rect = kirby_hitboxes[0].get("rect", Rect2()) as Rect2
+
+	_step_enemies(kirby_rect, kirby_mouth, kirby_hitboxes, is_inhaling, inhale_rect)
+	_step_boss(kirby_rect, kirby_hitboxes)
+	_step_projectiles(kirby_rect, kirby_mouth, is_inhaling, inhale_rect)
+
+	_check_door_transition()
+	_update_camera_scroll()
+	if _hud_renderer != null:
+		_hud_renderer.refresh()
+
+
+static func _dispose_node(n: Node) -> void:
+	if n == null or not is_instance_valid(n):
+		return
+	if n.is_inside_tree():
+		n.queue_free()
+	else:
+		if n.get_parent() != null:
+			n.get_parent().remove_child(n)
+		n.free()
+
+
+func _step_enemies(
+	kirby_rect: Rect2,
+	kirby_mouth: Vector2,
+	kirby_hitboxes: Array[Dictionary],
+	is_inhaling: bool,
+	inhale_rect: Rect2
+) -> void:
+	var surviving: Array[EnemyBase] = []
+	for enemy: EnemyBase in _enemies:
+		if not is_instance_valid(enemy) or not enemy.is_alive():
+			_dispose_node(enemy)
+			continue
+
+		if is_inhaling:
+			if enemy.state == EnemyBase.State.BEING_INHALED or inhale_rect.intersects(enemy.get_body_rect()):
+				enemy.begin_inhale_pull(kirby_mouth)
+		elif enemy.state == EnemyBase.State.BEING_INHALED:
+			enemy.release_inhale_pull()
+
+		enemy.step_physics(_kirby.pos)
+		_spawn_projectile_list(enemy.consume_spawned_projectiles())
+
+		if is_inhaling and enemy.is_ready_for_capture(kirby_mouth):
+			var ab_id: int = enemy.get_copy_ability()
+			if _kirby.capture_inhaled_cargo(ab_id):
+				enemy.mark_captured()
+				_dispose_node(enemy)
+				continue
+
+		# Check Kirby attack / slide hitboxes against enemy
+		var enemy_rect: Rect2 = enemy.get_body_rect()
+		for hb: Dictionary in kirby_hitboxes:
+			if not bool(hb.get("active", false)):
+				continue
+			var kind_str: String = String(hb.get("kind", ""))
+			if kind_str == "inhale":
+				continue
+			var hb_rect: Rect2 = hb.get("rect", Rect2()) as Rect2
+			if hb_rect.intersects(enemy_rect):
+				var dmg: int = int(hb.get("damage", 1))
+				var kdir: int = 1 if enemy.pos.x >= _kirby.pos.x else -1
+				if enemy.take_damage(dmg, kdir):
+					if not enemy.is_alive():
+						_add_score(enemy.score_value)
+						break
+
+		if not enemy.is_alive():
+			_dispose_node(enemy)
+			continue
+
+		# Enemy contact & attack damage to Kirby
+		var hit_kirby: bool = false
+		if enemy.state == EnemyBase.State.ACTIVE and enemy_rect.intersects(kirby_rect):
+			hit_kirby = true
+		else:
+			var e_hb: Dictionary = enemy.get_attack_hitbox()
+			if bool(e_hb.get("active", false)):
+				var e_rect: Rect2 = e_hb.get("rect", Rect2()) as Rect2
+				if e_rect.intersects(kirby_rect):
+					hit_kirby = true
+
+		if hit_kirby:
+			var knock_dir: int = 1 if _kirby.pos.x >= enemy.pos.x else -1
+			_kirby.take_damage(1, knock_dir)
+
+		surviving.append(enemy)
+	_enemies = surviving
+
+
+func _step_boss(kirby_rect: Rect2, kirby_hitboxes: Array[Dictionary]) -> void:
+	if _boss == null or not is_instance_valid(_boss):
+		return
+	var was_defeated: bool = _boss.is_defeated()
+	_boss.step_physics(_kirby.pos)
+	_spawn_projectile_list(_boss.consume_spawned_projectiles())
+
+	if _boss.is_defeated():
+		if not was_defeated:
+			_add_score(WhispyWoods.DEFEAT_SCORE)
+		return
+
+	var boss_rect: Rect2 = _boss.get_body_rect()
+	for hb: Dictionary in kirby_hitboxes:
+		if not bool(hb.get("active", false)):
+			continue
+		if String(hb.get("kind", "")) == "inhale":
+			continue
+		var hb_rect: Rect2 = hb.get("rect", Rect2()) as Rect2
+		if hb_rect.intersects(boss_rect):
+			var dmg: int = int(hb.get("damage", 1))
+			if _boss.take_damage(dmg) and _boss.is_defeated():
+				_add_score(WhispyWoods.DEFEAT_SCORE)
+				_spawn_projectile_list(_boss.consume_spawned_projectiles())
+				break
+
+	if not _boss.is_defeated() and _boss.phase != WhispyWoods.Phase.INTRO and boss_rect.intersects(kirby_rect):
+		var knock_dir: int = -1 if _kirby.pos.x <= _boss.pos.x else 1
+		_kirby.take_damage(1, knock_dir)
+
+
+func _step_projectiles(
+	kirby_rect: Rect2,
+	kirby_mouth: Vector2,
+	is_inhaling: bool,
+	inhale_rect: Rect2
+) -> void:
+	var surviving: Array[StarProjectile] = []
+	for proj: StarProjectile in _projectiles:
+		if not is_instance_valid(proj) or not proj.is_alive():
+			_dispose_node(proj)
+			continue
+
+		if is_inhaling and proj.is_inhalable():
+			if proj.is_being_inhaled() or inhale_rect.intersects(proj.get_hitbox_rect()):
+				proj.begin_inhale_pull(kirby_mouth)
+		elif proj.is_being_inhaled():
+			proj.cancel_inhale_pull()
+
+		proj.step_physics()
+		if not proj.is_alive():
+			_dispose_node(proj)
+			continue
+
+		if is_inhaling and proj.is_ready_for_capture(kirby_mouth):
+			if _kirby.capture_inhaled_cargo(proj.get_ability_id()):
+				proj.kill()
+				_dispose_node(proj)
+				continue
+
+		var p_rect: Rect2 = proj.get_hitbox_rect()
+
+		if proj.is_goal_pickup():
+			if p_rect.intersects(kirby_rect):
+				proj.kill()
+				_dispose_node(proj)
+				_trigger_stage_victory()
+				continue
+		elif proj.is_friendly():
+			var hit_something: bool = false
+			for enemy: EnemyBase in _enemies:
+				if not is_instance_valid(enemy) or not enemy.is_alive():
+					continue
+				if p_rect.intersects(enemy.get_body_rect()):
+					var kdir: int = 1 if proj.vel.x >= 0.0 else -1
+					if enemy.take_damage(proj.get_damage(), kdir):
+						if not enemy.is_alive():
+							_add_score(enemy.score_value)
+						hit_something = true
+						break
+			if not hit_something and _boss != null and is_instance_valid(_boss) and not _boss.is_defeated():
+				if p_rect.intersects(_boss.get_body_rect()):
+					if _boss.take_damage(proj.get_damage()):
+						if _boss.is_defeated():
+							_add_score(WhispyWoods.DEFEAT_SCORE)
+							_spawn_projectile_list(_boss.consume_spawned_projectiles())
+					hit_something = true
+			if hit_something:
+				proj.kill()
+				_dispose_node(proj)
+				continue
+		elif proj.is_hostile():
+			if p_rect.intersects(kirby_rect):
+				var knock_dir: int = 1 if _kirby.pos.x >= proj.pos.x else -1
+				_kirby.take_damage(1, knock_dir)
+				proj.kill()
+				_dispose_node(proj)
+				continue
+
+		surviving.append(proj)
+	_projectiles = surviving
+
+
+func _spawn_projectile_list(items: Array[Dictionary]) -> void:
+	if items.is_empty():
+		return
+	for item: Dictionary in items:
+		var proj: StarProjectile = StarProjectile.from_spawn_dict(item, _level_map)
+		if _projectiles_layer != null:
+			_projectiles_layer.add_child(proj)
+		_projectiles.append(proj)
+
+
+func _add_score(points: int) -> void:
+	if points <= 0:
+		return
+	_score += points
+	EventBus.score_changed.emit(_score, points)
+
+
+func _trigger_stage_victory() -> void:
+	_add_score(STAGE_CLEAR_BONUS)
+	_victory_frames = VICTORY_RETURN_FRAMES
+	if ContentRegistry.has_music_track(1):
+		EventBus.bgm_requested.emit(1)
+
+
+func _handle_kirby_respawn() -> void:
+	_defeat_frames = 0
+	_lives -= 1
+	if _lives <= 0:
+		_lives = 4
+		_score = 0
+		EventBus.score_changed.emit(_score, 0)
+		EventBus.lives_changed.emit(_lives)
+		load_world_room(DEFAULT_START_ROOM_ID, DEFAULT_SPAWN_POS, false)
+	else:
+		EventBus.lives_changed.emit(_lives)
+		load_world_room(_current_room_id, _room_spawn_pos, false)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -174,6 +454,25 @@ func _build_gameplay_panel() -> void:
 	_music_player.setup(_apu_engine)
 
 
+func _ensure_world_nodes() -> void:
+	if _level_map == null:
+		_level_map = LevelMap.new()
+		_level_map.name = "LevelMap"
+		_world_container.add_child(_level_map)
+	if _enemies_layer == null:
+		_enemies_layer = Node2D.new()
+		_enemies_layer.name = "EnemiesLayer"
+		_world_container.add_child(_enemies_layer)
+	if _projectiles_layer == null:
+		_projectiles_layer = Node2D.new()
+		_projectiles_layer.name = "ProjectilesLayer"
+		_world_container.add_child(_projectiles_layer)
+	if _kirby == null:
+		_kirby = KirbyController.new()
+		_kirby.name = "KirbyController"
+		_world_container.add_child(_kirby)
+
+
 func _attempt_rom_boot() -> void:
 	var loaded_cached: bool = ContentRegistry.load_from_user_data()
 	if not loaded_cached:
@@ -202,31 +501,103 @@ func _enter_ready_state() -> void:
 	var prev: int = _current_state
 	_missing_rom_panel.visible = false
 	_gameplay_panel.visible = true
+	_ensure_world_nodes()
 
-	if _level_map == null:
-		_level_map = LevelMap.new()
-		_level_map.name = "LevelMap"
-		_world_container.add_child(_level_map)
-	if _kirby == null:
-		_kirby = KirbyController.new()
-		_kirby.name = "KirbyController"
-		_world_container.add_child(_kirby)
-
+	_lives = 4
+	_score = 0
 	var start_room: int = DEFAULT_START_ROOM_ID if ContentRegistry.has_room(DEFAULT_START_ROOM_ID) else Constants.WORLD1_HUB_ROOM_ID
-	if _level_map.load_room(start_room):
-		_kirby.setup(_level_map, Vector2(40.0, 128.0))
+	if load_world_room(start_room, DEFAULT_SPAWN_POS, false):
 		_update_camera_scroll()
-		_current_state = Constants.GameState.PLAYING
 		set_physics_process(true)
 		if _hud_renderer != null:
-			_hud_renderer.set_status(_kirby.hp, _kirby.max_hp, 4, 0, _kirby.copy_ability)
+			_hud_renderer.set_status(_kirby.hp, _kirby.max_hp, _lives, _score, _kirby.copy_ability)
 		if _music_player != null:
 			_music_player.setup(_apu_engine)
 			EventBus.bgm_requested.emit(0)
-		EventBus.room_changed.emit(1, 1, start_room)
 		EventBus.game_state_changed.emit(_current_state, prev)
 	else:
 		_enter_missing_rom_state()
+
+
+func _clear_room_entities() -> void:
+	for e: EnemyBase in _enemies:
+		_dispose_node(e)
+	_enemies.clear()
+	for p: StarProjectile in _projectiles:
+		_dispose_node(p)
+	_projectiles.clear()
+	if _boss != null and is_instance_valid(_boss):
+		_dispose_node(_boss)
+	_boss = null
+
+
+func load_world_room(room_id: int, spawn_pos: Vector2, preserve_status: bool = true) -> bool:
+	_ensure_world_nodes()
+	if not _level_map.load_room(room_id):
+		return false
+
+	_clear_room_entities()
+	_victory_frames = 0
+	_defeat_frames = 0
+	_current_room_id = room_id
+	var actual_spawn: Vector2 = Vector2(48.0, 512.0) if room_id == BOSS_ROOM_ID else spawn_pos
+	_room_spawn_pos = actual_spawn
+
+	_kirby.setup(_level_map, actual_spawn, preserve_status)
+
+	var room_data: Dictionary = ContentRegistry.get_room_data(room_id)
+	var sp_chr_bank: int = int(room_data.get("sprite_chr_bank", 154))
+	for ent: Dictionary in _level_map.get_entities():
+		var actor_id: int = int(ent.get("actor_id", -1))
+		var e_type: int = EnemyBase.map_rom_actor_id(actor_id)
+		if e_type < 0:
+			continue
+		var scr: int = int(ent.get("screen", 0))
+		var tx: int = int(ent.get("tile_x", 0))
+		var ty: int = int(ent.get("tile_y", 0))
+		var e_pos: Vector2 = _level_map.screen_tile_to_pixel(scr, tx, ty) + Vector2(8.0, 16.0)
+		var enemy: EnemyBase = EnemyBase.new()
+		enemy.setup(e_type, e_pos, _level_map, -1, sp_chr_bank)
+		_enemies_layer.add_child(enemy)
+		_enemies.append(enemy)
+
+	if room_id == BOSS_ROOM_ID:
+		_current_state = Constants.GameState.BOSS_FIGHT
+		_boss = WhispyWoods.new()
+		_enemies_layer.add_child(_boss)
+		_boss.setup(Vector2(128.0, 544.0), _level_map)
+		if ContentRegistry.has_music_track(5):
+			EventBus.bgm_requested.emit(5)
+	else:
+		_current_state = Constants.GameState.PLAYING
+		EventBus.boss_hp_changed.emit(0, 0, 0)
+		if _music_player != null and _music_player.get_current_bgm_id() != 0:
+			EventBus.bgm_requested.emit(0)
+
+	EventBus.hp_changed.emit(_kirby.hp, _kirby.max_hp)
+	EventBus.copy_ability_changed.emit(_kirby.copy_ability)
+	EventBus.room_changed.emit(1, 1, room_id)
+	return true
+
+
+func get_enemies() -> Array[EnemyBase]:
+	return _enemies
+
+
+func get_projectiles() -> Array[StarProjectile]:
+	return _projectiles
+
+
+func get_boss() -> WhispyWoods:
+	return _boss
+
+
+func get_score() -> int:
+	return _score
+
+
+func get_lives() -> int:
+	return _lives
 
 
 func _check_door_transition() -> void:
@@ -238,15 +609,22 @@ func _check_door_transition() -> void:
 	var dst_room: int = int(door.get("dest_room_id", -1))
 	if not ContentRegistry.has_room(dst_room):
 		return
+	if int(door.get("special", 0)) == 16:
+		_add_score(STAGE_CLEAR_BONUS)
+
 	var dst_scr: int = int(door.get("dst_screen", 0))
 	var dst_x: int = int(door.get("dst_x", 2))
 	var dst_y: int = int(door.get("dst_y", 6))
-	if _level_map.load_room(dst_room):
-		var spawn_px: float = float((dst_scr * Constants.ROOM_SCREEN_COLS + dst_x) * Constants.METATILE_SIZE + 8)
-		var spawn_py: float = float((dst_y + 1) * Constants.METATILE_SIZE)
-		_kirby.setup(_level_map, Vector2(spawn_px, spawn_py))
+
+	# Resolve target pixel using destination room dimensions
+	var dst_data: Dictionary = ContentRegistry.get_room_data(dst_room)
+	var dst_w_scr: int = maxi(1, int(dst_data.get("width_screens", 1)))
+	var sx: int = dst_scr % dst_w_scr
+	var sy: int = dst_scr / dst_w_scr
+	var spawn_px: float = float((sx * Constants.ROOM_SCREEN_COLS + dst_x) * Constants.METATILE_SIZE + 8)
+	var spawn_py: float = float((sy * Constants.ROOM_SCREEN_ROWS + dst_y + 1) * Constants.METATILE_SIZE)
+	if load_world_room(dst_room, Vector2(spawn_px, spawn_py), true):
 		_update_camera_scroll()
-		EventBus.room_changed.emit(1, 1, dst_room)
 
 
 func _update_camera_scroll() -> void:

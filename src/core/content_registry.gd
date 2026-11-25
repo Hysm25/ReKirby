@@ -12,6 +12,7 @@ var _palettes: Dictionary = {}
 var _metatiles: Dictionary = {}
 var _rooms: Dictionary = {}
 var _audio_tables: Dictionary = {}
+var _sprite_tex_cache: Dictionary = {}
 
 
 func is_ready() -> bool:
@@ -27,6 +28,7 @@ func clear() -> void:
 	_metatiles.clear()
 	_rooms.clear()
 	_audio_tables.clear()
+	_sprite_tex_cache.clear()
 
 
 func require_initialized() -> bool:
@@ -331,3 +333,64 @@ func get_dpcm_sample_bytes(addr_reg: int, len_reg: int) -> PackedByteArray:
 	for i: int in range(raw_arr.size()):
 		out[i] = int(raw_arr[i]) & 0xFF
 	return out
+
+
+func build_rom_sprite_texture(
+	bank_1k: int,
+	tile_ids: PackedInt32Array,
+	width_tiles: int,
+	height_tiles: int,
+	palette_key: String,
+	fallback_palette_key: String = "kirby_default"
+) -> ImageTexture:
+	if not _initialized:
+		return null
+	var cache_key: String = "%d_%s_%s_%dx%d" % [bank_1k, str(tile_ids), palette_key, width_tiles, height_tiles]
+	if _sprite_tex_cache.has(cache_key):
+		return _sprite_tex_cache[cache_key] as ImageTexture
+
+	var bank_img: Image = get_chr_bank_image(bank_1k)
+	if bank_img == null or bank_img.is_empty():
+		return null
+	var pal: PackedColorArray = get_palette_colors(palette_key)
+	if pal.size() < 4:
+		pal = get_palette_colors(fallback_palette_key)
+	if pal.size() < 4:
+		return null
+
+	var img_w: int = maxi(1, width_tiles) * Constants.TILE_SIZE
+	var img_h: int = maxi(1, height_tiles) * Constants.TILE_SIZE
+	var src_rgba: PackedByteArray = bank_img.get_data()
+	var out_rgba: PackedByteArray = PackedByteArray()
+	out_rgba.resize(img_w * img_h * 4)
+
+	var tile_count: int = mini(tile_ids.size(), width_tiles * height_tiles)
+	for slot: int in range(tile_count):
+		var local_tile: int = tile_ids[slot] & 0x3F
+		var tx0: int = (local_tile % 8) * Constants.TILE_SIZE
+		var ty0: int = (local_tile / 8) * Constants.TILE_SIZE
+		var dst_tx: int = (slot % width_tiles) * Constants.TILE_SIZE
+		var dst_ty: int = (slot / width_tiles) * Constants.TILE_SIZE
+		for py: int in range(Constants.TILE_SIZE):
+			var src_row: int = ((ty0 + py) * Constants.CHR_1K_BANK_SHEET_WIDTH + tx0) * 4
+			var dst_row: int = ((dst_ty + py) * img_w + dst_tx) * 4
+			for px: int in range(Constants.TILE_SIZE):
+				var gray: int = src_rgba[src_row + px * 4]
+				var c_idx: int = clampi((gray + 42) / 85, 0, 3)
+				var dst_off: int = dst_row + px * 4
+				if c_idx == 0:
+					out_rgba[dst_off] = 0
+					out_rgba[dst_off + 1] = 0
+					out_rgba[dst_off + 2] = 0
+					out_rgba[dst_off + 3] = 0
+				else:
+					var col: Color = pal[c_idx]
+					out_rgba[dst_off] = clampi(int(round(col.r * 255.0)), 0, 255)
+					out_rgba[dst_off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)
+					out_rgba[dst_off + 2] = clampi(int(round(col.b * 255.0)), 0, 255)
+					out_rgba[dst_off + 3] = 255
+
+	var img: Image = Image.create_from_data(img_w, img_h, false, Image.FORMAT_RGBA8, out_rgba)
+	var tex: ImageTexture = ImageTexture.create_from_image(img)
+	_sprite_tex_cache[cache_key] = tex
+	return tex

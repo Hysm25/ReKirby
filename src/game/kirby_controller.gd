@@ -160,7 +160,7 @@ func _build_kirby_rom_texture() -> ImageTexture:
 	return ImageTexture.create_from_image(img)
 
 
-func setup(level_map: LevelMap, spawn_pos: Vector2) -> void:
+func setup(level_map: LevelMap, spawn_pos: Vector2, preserve_status: bool = false) -> void:
 	_level_map = level_map
 	pos = spawn_pos
 	position = pos
@@ -169,8 +169,9 @@ func setup(level_map: LevelMap, spawn_pos: Vector2) -> void:
 	state = State.IDLE
 	on_ground = false
 	in_water = false
-	hp = max_hp
-	copy_ability = Constants.CopyAbility.NONE
+	if not preserve_status:
+		hp = max_hp
+		copy_ability = Constants.CopyAbility.NONE
 	has_cargo = false
 	cargo_ability = Constants.CopyAbility.NONE
 	invuln_frames = 0
@@ -185,8 +186,13 @@ func setup(level_map: LevelMap, spawn_pos: Vector2) -> void:
 	_spawned_projectiles.clear()
 	_ensure_ability_nodes()
 	_deactivate_active_ability()
-	_active_ability = null
+	if preserve_status and _abilities.has(copy_ability):
+		_active_ability = _abilities[copy_ability] as AbilityBase
+	else:
+		copy_ability = Constants.CopyAbility.NONE
+		_active_ability = null
 	_ensure_visual_sprite()
+	_sync_visual()
 
 
 func _ensure_ability_nodes() -> void:

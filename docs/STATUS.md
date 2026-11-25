@@ -5,8 +5,8 @@
 
 ---
 
-## Current Workspace Snapshot (Phase 3 Complete — 2A03 APU 5-Channel Audio & PRG-ROM Music/SFX)
-- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM, World 1, and Audio PRG-ROM Extraction Pipeline (`src/importer/` including `AudioExtractor`), Mandatory ROM Setup Guard + Playable World 1 Room Boot (`src/main.gd`, `src/main.tscn`), Phase 2 `LevelMap`, `KirbyController`, Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`), Scanline IRQ Split `HUDRenderer`, and `VirtualGamepad` (`src/game/`), Phase 3 2A03 5-channel `APUEngine` & `MusicPlayer` (`src/audio/`), and headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`, `tests/test_physics.gd`, `tests/test_audio.gd`) implemented and passing 100% (`222/222`).
+## Current Workspace Snapshot (Phase 4 Core Complete — World 1 Vertical Slice & Whispy Woods Boss)
+- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM, World 1, and Audio PRG-ROM Extraction Pipeline (`src/importer/`), Mandatory ROM Setup Guard + full World 1 gameplay loop (`src/main.gd`, `src/main.tscn`), Phase 2 `LevelMap`, `KirbyController`, Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`), Scanline IRQ Split `HUDRenderer`, `VirtualGamepad` (`src/game/`), Phase 3 2A03 5-channel `APUEngine` & `MusicPlayer` (`src/audio/`), Phase 4 `StarProjectile`, `EnemyBase` (7 World 1 enemies), and `WhispyWoods` boss (`src/game/entities/`), and headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`, `tests/test_physics.gd`, `tests/test_audio.gd`, `tests/test_vertical_slice.gd`) implemented and passing 100% (`267/267`).
 - **Completed So Far**:
   - [x] Audited workspace directory, relocated local ROM into git-ignored `rom/`, and verified `rom/*.nes` exclusion.
   - [x] Established clean-room `.gitignore` and `AGENTS.md` execution blueprint.
@@ -53,11 +53,11 @@
 - [x] **PRG-ROM Music & SFX Interpreter (`src/audio/music_player.gd`)**: Extract via `AudioExtractor` (`src/importer/audio_extractor.gd`) and play authentic Kirby's Adventure BGM tracks & SFX with channel priority overrides.
 - [x] **Verification (`tests/test_audio.gd`)**: Non-clipping mix headroom, DPCM decoding, 93-step periodic noise, and 60 TPS audio stream stability (`39/39` passing; `222/222` total).
 
-### Phase 4: World 1 Vegetable Valley & Whispy Woods Boss Vertical Slice (Pending)
-- [ ] **World 1 Enemies (`src/game/entities/enemy_base.gd`)**: Waddle Dee, Waddle Doo (Beam), Poppy Bros. Jr., Blade Knight (Sword), Hot Head (Fire), Sparky (Spark), Bronto Burt.
-- [ ] **Stage Progression**: Vegetable Valley Stages 1–1 through 1–3 (including slopes, water section, breakable blocks, doors, Warp Star / Goal Game).
-- [ ] **Boss Encounter (`src/game/entities/whispy_woods.gd`)**: Whispy Woods boss room (air puff attacks, falling apples to inhale/spit back, boss HP bar in scanline HUD, Star Rod / victory fanfare).
+### Phase 4: World 1 Vegetable Valley & Whispy Woods Boss Vertical Slice (Core Complete — Target Device Verification Pending)
+- [x] **World 1 Enemies (`src/game/entities/enemy_base.gd`)**: Waddle Dee, Waddle Doo (Beam), Poppy Bros. Jr., Blade Knight (Sword), Hot Head (Fire), Sparky (Spark), Bronto Burt.
+- [x] **Stage Progression**: Vegetable Valley Stages 1–1 through 1–3 (`src/game/entities/star_projectile.gd`, `src/game/level_map.gd`, `src/main.gd` multi-screen door transitions, breakable blocks, Copy Ability capture/drop, Goal Star Rod).
+- [x] **Boss Encounter (`src/game/entities/whispy_woods.gd`)**: Whispy Woods boss room (`Room 30`: air puff attacks, falling apples to inhale/spit back, boss HP bar in scanline HUD, Goal Star Rod / victory fanfare).
 - [ ] **Target Platform Verification**:
-  - [ ] Headless test runner (`godot --headless -s tests/test_runner.gd`) passing 100%.
+  - [x] Headless test runner (`godot --headless -s tests/test_runner.gd`) passing 100% (`267/267`).
   - [ ] Desktop verification on CachyOS (Intel i5-2400, GL Compatibility).
   - [ ] Android APK export & touch verification on Snapdragon 6 Gen 3.

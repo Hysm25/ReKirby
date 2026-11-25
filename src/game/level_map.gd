@@ -394,13 +394,23 @@ func break_metatile_at(mx: int, my: int) -> bool:
 	return true
 
 
+func screen_tile_to_pixel(screen: int, tile_x: int, tile_y: int) -> Vector2:
+	var w_scr: int = maxi(1, _width_screens)
+	var sx: int = screen % w_scr
+	var sy: int = screen / w_scr
+	var px: float = float((sx * Constants.ROOM_SCREEN_COLS + tile_x) * Constants.METATILE_SIZE)
+	var py: float = float((sy * Constants.ROOM_SCREEN_ROWS + tile_y) * Constants.METATILE_SIZE)
+	return Vector2(px, py)
+
+
 func find_door_at_pixel(px: float, py: float) -> Dictionary:
 	for door: Dictionary in _doors:
 		var src_scr: int = int(door.get("src_screen", 0))
 		var src_x: int = int(door.get("src_x", 0))
 		var src_y: int = int(door.get("src_y", 0))
-		var door_cx: float = float((src_scr * Constants.ROOM_SCREEN_COLS + src_x) * Constants.METATILE_SIZE + 8)
-		var door_cy: float = float(src_y * Constants.METATILE_SIZE + 8)
+		var top_left: Vector2 = screen_tile_to_pixel(src_scr, src_x, src_y)
+		var door_cx: float = top_left.x + 8.0
+		var door_cy: float = top_left.y + 8.0
 		if absf(px - door_cx) <= 10.0 and absf(py - door_cy) <= 14.0:
 			return door.duplicate(true)
 	return {}
