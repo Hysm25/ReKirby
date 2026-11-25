@@ -93,7 +93,8 @@ var _inhaling: bool = false
 var _level_map: LevelMap = null
 var _spawned_projectiles: Array[Dictionary] = []
 var _sprite: Sprite2D = null
-var _idle_tex: ImageTexture = null
+var _anim_frame: int = 0
+var _current_anim_key: String = "idle_0"
 var _abilities: Dictionary = {}
 var _active_ability: AbilityBase = null
 
@@ -111,53 +112,100 @@ func _ensure_visual_sprite() -> void:
 		_sprite.position = Vector2(-8.0, -16.0)
 		_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		add_child(_sprite)
-	if _idle_tex == null and ContentRegistry.is_ready():
-		_idle_tex = _build_kirby_rom_texture()
-	if _idle_tex != null:
-		_sprite.texture = _idle_tex
+	_apply_kirby_anim_texture("idle_0")
 
 
-func _build_kirby_rom_texture() -> ImageTexture:
-	# Compose 16x16 standing Kirby from ROM CHR bank 128 (0x80): left 8x16 (tiles 8,9) + right 8x16 (tiles 12,13)
-	var bank_img: Image = ContentRegistry.get_chr_bank_image(128)
-	if bank_img == null or bank_img.is_empty():
-		return null
-	var pal: PackedColorArray = ContentRegistry.get_palette_colors("kirby_default")
-	if pal.size() < 4:
-		return null
+func _get_kirby_pose_spec(anim_key: String) -> Dictionary:
+	match anim_key:
+		"idle_0":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([8, 12, 9, 13])}
+		"idle_blink":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([8, 14, 9, 15])}
+		"walk_0":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([4, 16, 5, 17])}
+		"walk_1":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([4, 18, 5, 19])}
+		"walk_2":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([10, 16, 11, 17])}
+		"walk_3":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([6, 24, 7, 25])}
+		"crouch":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([56, 58, 57, 59])}
+		"slide":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([52, 54, 53, 55])}
+		"jump_flip":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([40, 42, 41, 43])}
+		"hover_0":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "tiles": PackedInt32Array([8, 12, 9, 13])}
+		"hover_1":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "tiles": PackedInt32Array([14, 16, 15, 17])}
+		"hover_2":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "tiles": PackedInt32Array([18, 20, 19, 21])}
+		"inhale":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "tiles": PackedInt32Array([32, 34, 33, 35])}
+		"hurt":
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "tiles": PackedInt32Array([24, 26, 25, 27])}
+		"ability_atk":
+			return {"bank": Constants.CHR_BANK_ABILITY_KIRBY, "tiles": PackedInt32Array([8, 12, 9, 13])}
+		_:
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([8, 12, 9, 13])}
 
-	var src_rgba: PackedByteArray = bank_img.get_data()
-	var out_rgba: PackedByteArray = PackedByteArray()
-	out_rgba.resize(16 * 16 * 4)
 
-	var cols: PackedInt32Array = PackedInt32Array([8, 12, 9, 13])
-	for q: int in range(4):
-		var local_tile: int = cols[q]
-		var tx0: int = (local_tile % 8) * Constants.TILE_SIZE
-		var ty0: int = (local_tile / 8) * Constants.TILE_SIZE
-		var dst_qx: int = (q & 1) * Constants.TILE_SIZE
-		var dst_qy: int = ((q >> 1) & 1) * Constants.TILE_SIZE
-		for py: int in range(Constants.TILE_SIZE):
-			var src_row: int = ((ty0 + py) * Constants.CHR_1K_BANK_SHEET_WIDTH + tx0) * 4
-			var dst_row: int = ((dst_qy + py) * 16 + dst_qx) * 4
-			for px: int in range(Constants.TILE_SIZE):
-				var gray: int = src_rgba[src_row + px * 4]
-				var c_idx: int = clampi((gray + 42) / 85, 0, 3)
-				var dst_off: int = dst_row + px * 4
-				if c_idx == 0:
-					out_rgba[dst_off] = 0
-					out_rgba[dst_off + 1] = 0
-					out_rgba[dst_off + 2] = 0
-					out_rgba[dst_off + 3] = 0
-				else:
-					var col: Color = pal[c_idx]
-					out_rgba[dst_off] = clampi(int(round(col.r * 255.0)), 0, 255)
-					out_rgba[dst_off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)
-					out_rgba[dst_off + 2] = clampi(int(round(col.b * 255.0)), 0, 255)
-					out_rgba[dst_off + 3] = 255
+func _resolve_anim_key() -> String:
+	match state:
+		State.IDLE:
+			return "idle_blink" if (_anim_frame % 180) >= 170 else "idle_0"
+		State.WALK:
+			var step_w: int = (_anim_frame / 6) % 4
+			return "walk_%d" % step_w
+		State.RUN:
+			var step_r: int = (_anim_frame / 3) % 4
+			return "walk_%d" % step_r
+		State.CROUCH:
+			return "crouch"
+		State.SLIDE:
+			return "slide"
+		State.JUMP:
+			return "jump_flip" if ((_anim_frame / 4) % 2) == 0 else "walk_1"
+		State.FALL:
+			return "walk_3" if vel.y > 1.2 else "idle_0"
+		State.HOVER:
+			var step_h: int = (_anim_frame / 6) % 3
+			return "hover_%d" % step_h
+		State.EXHALE, State.INHALE:
+			return "inhale"
+		State.MOUTH_FULL:
+			if absf(vel.x) > 0.1 and ((_anim_frame / 7) % 2) == 1:
+				return "hover_1"
+			return "hover_0"
+		State.SWIM, State.WATER_GUN:
+			return "hover_1" if ((_anim_frame / 8) % 2) == 0 else "hover_2"
+		State.DAMAGE_KNOCKBACK, State.DEFEAT:
+			return "hurt"
+		State.ABILITY_ATTACK:
+			return "ability_atk"
+		_:
+			return "idle_0"
 
-	var img: Image = Image.create_from_data(16, 16, false, Image.FORMAT_RGBA8, out_rgba)
-	return ImageTexture.create_from_image(img)
+
+func _apply_kirby_anim_texture(anim_key: String) -> void:
+	_current_anim_key = anim_key
+	if _sprite == null or not ContentRegistry.is_ready():
+		return
+	var spec: Dictionary = _get_kirby_pose_spec(anim_key)
+	var bank_id: int = int(spec.get("bank", Constants.CHR_BANK_KIRBY_DEFAULT))
+	var tiles: PackedInt32Array = spec.get("tiles", PackedInt32Array([8, 12, 9, 13])) as PackedInt32Array
+	var tex: ImageTexture = ContentRegistry.build_rom_sprite_texture(bank_id, tiles, 2, 2, "kirby_default")
+	if tex != null:
+		_sprite.texture = tex
+
+
+func get_current_anim_key() -> String:
+	return _current_anim_key
+
+
+func get_anim_frame() -> int:
+	return _anim_frame
 
 
 func setup(level_map: LevelMap, spawn_pos: Vector2, preserve_status: bool = false) -> void:
@@ -352,6 +400,7 @@ func take_damage(amount: int = 1, knock_dir: int = -1, bypass_barrier: bool = fa
 
 
 func step_physics() -> void:
+	_anim_frame += 1
 	state_frames += 1
 	if invuln_frames > 0:
 		invuln_frames -= 1
@@ -886,6 +935,9 @@ func _sync_visual() -> void:
 	if _active_ability != null:
 		_active_ability.position = Vector2.ZERO
 		_active_ability.sync_visuals()
+	var next_key: String = _resolve_anim_key()
+	if next_key != _current_anim_key or (_sprite != null and _sprite.texture == null):
+		_apply_kirby_anim_texture(next_key)
 	if _sprite != null:
 		_sprite.flip_h = facing_dir < 0
 		if invuln_frames > 0:

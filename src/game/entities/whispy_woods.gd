@@ -38,7 +38,9 @@ var _canopy_y: float = 408.0
 var _mouth_y: float = 488.0
 var _spawned_projectiles: Array[Dictionary] = []
 var _face_sprite: Sprite2D = null
-var _face_tex: ImageTexture = null
+var _face_tex_idle: ImageTexture = null
+var _face_tex_blink: ImageTexture = null
+var _face_tex_puff: ImageTexture = null
 
 
 func _ready() -> void:
@@ -53,20 +55,34 @@ func _ensure_visual() -> void:
 		_face_sprite.position = Vector2(0.0, -76.0)
 		_face_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		add_child(_face_sprite)
-	if _face_tex == null and ContentRegistry.is_ready():
+	if _face_tex_idle == null and ContentRegistry.is_ready():
 		var pal_key: String = "room_30_bg_2"
 		if ContentRegistry.get_palette_indices(pal_key).is_empty():
 			pal_key = "hud_bg_0"
-		# Authentic Whispy Woods face tiles from CHR Bank 180 (tiles 2,4,6,8 / 3,5,7,9)
-		_face_tex = ContentRegistry.build_rom_sprite_texture(
+		# Authentic Whispy Woods face tiles from CHR Bank 180 (idle, blink, puff)
+		_face_tex_idle = ContentRegistry.build_rom_sprite_texture(
 			180,
 			PackedInt32Array([2, 4, 6, 8, 3, 5, 7, 9]),
 			4,
 			2,
 			pal_key
 		)
-	if _face_tex != null:
-		_face_sprite.texture = _face_tex
+		_face_tex_blink = ContentRegistry.build_rom_sprite_texture(
+			180,
+			PackedInt32Array([10, 12, 14, 16, 11, 13, 15, 17]),
+			4,
+			2,
+			pal_key
+		)
+		_face_tex_puff = ContentRegistry.build_rom_sprite_texture(
+			180,
+			PackedInt32Array([2, 4, 6, 8, 19, 21, 23, 9]),
+			4,
+			2,
+			pal_key
+		)
+	if _face_tex_idle != null and _face_sprite.texture == null:
+		_face_sprite.texture = _face_tex_idle
 
 
 func setup(spawn_pos: Vector2, level_map: LevelMap = null) -> void:
@@ -189,9 +205,19 @@ func _sync_visual() -> void:
 	position = pos
 	if _face_sprite == null:
 		return
+	if _face_tex_idle == null and ContentRegistry.is_ready():
+		_ensure_visual()
 	if phase == Phase.DEFEATED:
+		if _face_tex_blink != null:
+			_face_sprite.texture = _face_tex_blink
 		_face_sprite.visible = (_phase_frames < 30) and ((_phase_frames % 4) < 2)
 		return
+	if phase == Phase.PUFF_ATTACK and _face_tex_puff != null:
+		_face_sprite.texture = _face_tex_puff
+	elif (_phase_frames % 90) >= 82 and _face_tex_blink != null:
+		_face_sprite.texture = _face_tex_blink
+	elif _face_tex_idle != null:
+		_face_sprite.texture = _face_tex_idle
 	if _invuln_frames > 0:
 		_face_sprite.visible = (_invuln_frames % 2) == 0
 	else:

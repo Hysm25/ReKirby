@@ -1,7 +1,8 @@
 class_name VirtualGamepad
 extends CanvasLayer
 ## Cross-platform desktop & Android multi-touch NES controller overlay.
-## Routes touch regions cleanly into InputManager bitmasks without stuck inputs.
+## Dynamically anchors controls to viewport margins clear of the centered 256x240 stage,
+## auto-hides on physical keyboard/gamepad input, and re-shows on touch.
 
 const Constants = preload("res://src/core/constants.gd")
 
@@ -9,12 +10,18 @@ var _root_control: Control = null
 var _button_rects: Dictionary = {} # NesButton (int) -> Rect2
 var _touch_fingers: Dictionary = {} # finger_index (int) -> NesButton (int)
 var _overlay_visible: bool = false
+var _last_viewport_size: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
 	name = "VirtualGamepad"
 	layer = 20
 	_build_overlay()
+	var vp: Viewport = get_viewport()
+	if vp != null:
+		if not vp.size_changed.is_connected(_on_viewport_size_changed):
+			vp.size_changed.connect(_on_viewport_size_changed)
+		_on_viewport_size_changed()
 	var is_touch_device: bool = OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()
 	set_overlay_visible(is_touch_device)
 
@@ -27,7 +34,47 @@ func _build_overlay() -> void:
 	_root_control.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root_control.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root_control)
-	_rebuild_button_rects(Vector2(float(Constants.NATIVE_WIDTH), float(Constants.NATIVE_HEIGHT)))
+	var vp_size: Vector2 = Vector2(float(Constants.NATIVE_WIDTH), float(Constants.NATIVE_HEIGHT))
+	var vp: Viewport = get_viewport()
+	if vp != null:
+		var vr: Rect2 = vp.get_visible_rect()
+		if vr.size.x >= 256.0 and vr.size.y >= 240.0:
+			vp_size = vr.size
+	rebuild_for_viewport_size(vp_size)
+
+
+func _on_viewport_size_changed() -> void:
+	var vp: Viewport = get_viewport()
+	if vp == null:
+		return
+	var vr: Rect2 = vp.get_visible_rect()
+	if vr.size.x > 0.0 and vr.size.y > 0.0:
+		rebuild_for_viewport_size(vr.size)
+
+
+func rebuild_for_viewport_size(vp_size: Vector2) -> void:
+	var w: float = maxf(256.0, vp_size.x)
+	var h: float = maxf(240.0, vp_size.y)
+	_last_viewport_size = Vector2(w, h)
+
+	# D-Pad anchored to bottom-left margin centered around (38, h - 44)
+	var dpad_center: Vector2 = Vector2(38.0, h - 44.0)
+	var center_x: float = w * 0.5
+	_button_rects = {
+		Constants.NesButton.UP: Rect2(dpad_center + Vector2(-10.0, -30.0), Vector2(20.0, 20.0)),
+		Constants.NesButton.DOWN: Rect2(dpad_center + Vector2(-10.0, 10.0), Vector2(20.0, 20.0)),
+		Constants.NesButton.LEFT: Rect2(dpad_center + Vector2(-30.0, -10.0), Vector2(20.0, 20.0)),
+		Constants.NesButton.RIGHT: Rect2(dpad_center + Vector2(10.0, -10.0), Vector2(20.0, 20.0)),
+		Constants.NesButton.SELECT: Rect2(Vector2(center_x - 32.0, h - 20.0), Vector2(28.0, 14.0)),
+		Constants.NesButton.START: Rect2(Vector2(center_x + 8.0, h - 20.0), Vector2(28.0, 14.0)),
+		Constants.NesButton.B: Rect2(Vector2(w - 74.0, h - 42.0), Vector2(28.0, 28.0)),
+		Constants.NesButton.A: Rect2(Vector2(w - 36.0, h - 54.0), Vector2(28.0, 28.0)),
+	}
+	_rebuild_visual_pads()
+
+
+func get_last_viewport_size() -> Vector2:
+	return _last_viewport_size
 
 
 func set_overlay_visible(visible_flag: bool) -> void:
@@ -51,23 +98,6 @@ func get_button_rect(button: int) -> Rect2:
 func clear_all_touches() -> void:
 	_touch_fingers.clear()
 	InputManager.clear_touch_mask()
-
-
-func _rebuild_button_rects(vp_size: Vector2) -> void:
-	var w: float = maxf(256.0, vp_size.x)
-	var h: float = maxf(240.0, vp_size.y)
-	var dpad_base: Vector2 = Vector2(12.0, h - 76.0)
-	_button_rects = {
-		Constants.NesButton.UP: Rect2(dpad_base + Vector2(22.0, 0.0), Vector2(22.0, 22.0)),
-		Constants.NesButton.DOWN: Rect2(dpad_base + Vector2(22.0, 44.0), Vector2(22.0, 22.0)),
-		Constants.NesButton.LEFT: Rect2(dpad_base + Vector2(0.0, 22.0), Vector2(22.0, 22.0)),
-		Constants.NesButton.RIGHT: Rect2(dpad_base + Vector2(44.0, 22.0), Vector2(22.0, 22.0)),
-		Constants.NesButton.SELECT: Rect2(Vector2(w * 0.5 - 42.0, h - 22.0), Vector2(36.0, 14.0)),
-		Constants.NesButton.START: Rect2(Vector2(w * 0.5 + 6.0, h - 22.0), Vector2(36.0, 14.0)),
-		Constants.NesButton.B: Rect2(Vector2(w - 78.0, h - 46.0), Vector2(28.0, 28.0)),
-		Constants.NesButton.A: Rect2(Vector2(w - 42.0, h - 56.0), Vector2(28.0, 28.0)),
-	}
-	_rebuild_visual_pads()
 
 
 func _rebuild_visual_pads() -> void:
@@ -109,12 +139,27 @@ func _rebuild_visual_pads() -> void:
 
 
 func _input(event: InputEvent) -> void:
-	if not _overlay_visible:
-		return
 	if event is InputEventScreenTouch:
-		handle_touch_event(event as InputEventScreenTouch)
+		var touch_ev: InputEventScreenTouch = event as InputEventScreenTouch
+		if touch_ev.pressed and not _overlay_visible:
+			set_overlay_visible(true)
+		if _overlay_visible:
+			handle_touch_event(touch_ev)
 	elif event is InputEventScreenDrag:
-		handle_drag_event(event as InputEventScreenDrag)
+		if _overlay_visible:
+			handle_drag_event(event as InputEventScreenDrag)
+	elif event is InputEventKey:
+		var key_ev: InputEventKey = event as InputEventKey
+		if key_ev.pressed and not key_ev.echo and _overlay_visible:
+			set_overlay_visible(false)
+	elif event is InputEventJoypadButton:
+		var pad_ev: InputEventJoypadButton = event as InputEventJoypadButton
+		if pad_ev.pressed and _overlay_visible:
+			set_overlay_visible(false)
+	elif event is InputEventJoypadMotion:
+		var mot_ev: InputEventJoypadMotion = event as InputEventJoypadMotion
+		if absf(mot_ev.axis_value) > 0.35 and _overlay_visible:
+			set_overlay_visible(false)
 
 
 func handle_touch_event(ev: InputEventScreenTouch) -> void:

@@ -430,9 +430,11 @@ func _apply_ground_physics(turn_on_ledge: bool) -> void:
 func _refresh_rom_textures() -> void:
 	if not ContentRegistry.is_ready():
 		return
+	var fh: int = Constants.OAM_FLIP_H
+	var fv: int = Constants.OAM_FLIP_V
 	var bank_id: int = _room_sprite_chr_bank
-	var tiles_a: PackedInt32Array = PackedInt32Array([0, 4, 1, 5])
-	var tiles_b: PackedInt32Array = PackedInt32Array([2, 4, 3, 5])
+	var tiles_a: PackedInt32Array = PackedInt32Array([4, 4 | fh, 5, 5 | fh])
+	var tiles_b: PackedInt32Array = PackedInt32Array([0, 4 | fh, 1, 5 | fh])
 	var pal_key: String = "hud_sp_fire"
 	if _level_map != null:
 		var r_sp2: String = "room_%d_sp_2" % _level_map.get_room_id()
@@ -442,35 +444,41 @@ func _refresh_rom_textures() -> void:
 	match enemy_type:
 		EnemyType.WADDLE_DEE:
 			bank_id = 154
-			tiles_a = PackedInt32Array([0, 4, 1, 5])
-			tiles_b = PackedInt32Array([2, 4, 3, 5])
+			tiles_a = PackedInt32Array([4, 4 | fh, 5, 5 | fh])
+			tiles_b = PackedInt32Array([0, 4 | fh, 1, 5 | fh])
 		EnemyType.WADDLE_DOO:
 			bank_id = 154
-			tiles_a = PackedInt32Array([12, 14, 13, 15])
-			tiles_b = PackedInt32Array([16, 18, 17, 19])
+			tiles_a = PackedInt32Array([14, 14 | fh, 15, 15 | fh])
+			tiles_b = PackedInt32Array([12, 14 | fh, 13, 15 | fh])
 		EnemyType.POPPY_BROS_JR:
 			bank_id = 154
-			tiles_a = PackedInt32Array([32, 34, 33, 35])
-			tiles_b = tiles_a
+			tiles_a = PackedInt32Array([32, 34 | fh, 33, 35 | fh])
+			tiles_b = PackedInt32Array([48, 50, 49, 51])
 		EnemyType.BLADE_KNIGHT:
 			bank_id = 158
-			tiles_a = PackedInt32Array([40, 42, 41, 43])
-			tiles_b = PackedInt32Array([44, 46, 45, 47])
+			tiles_a = PackedInt32Array([42, 42 | fh, 43, 43 | fh])
+			tiles_b = PackedInt32Array([40, 40 | fh, 41, 41 | fh])
 		EnemyType.HOT_HEAD:
 			bank_id = 158
-			tiles_a = PackedInt32Array([32, 34, 33, 35])
-			tiles_b = tiles_a
+			tiles_a = PackedInt32Array([32, 32 | fh, 33, 33 | fh])
+			tiles_b = PackedInt32Array([34, 34 | fh, 35, 35 | fh])
 		EnemyType.SPARKY:
 			bank_id = 158
-			tiles_a = PackedInt32Array([36, 38, 37, 39])
-			tiles_b = tiles_a
+			tiles_a = PackedInt32Array([38, 38 | fh, 39, 39 | fh])
+			tiles_b = PackedInt32Array([36, 36 | fh, 37, 37 | fh])
 		EnemyType.BRONTO_BURT:
 			bank_id = 154
 			tiles_a = PackedInt32Array([28, 30, 29, 31])
-			tiles_b = tiles_a
+			tiles_b = PackedInt32Array([28, 30 | fv, 29, 31])
 
 	_tex_frame_a = ContentRegistry.build_rom_sprite_texture(bank_id, tiles_a, 2, 2, pal_key)
 	_tex_frame_b = ContentRegistry.build_rom_sprite_texture(bank_id, tiles_b, 2, 2, pal_key)
+
+
+func get_current_anim_frame_index() -> int:
+	if _attack_active_frames > 0:
+		return 1
+	return (_state_frames / 8) % 2
 
 
 func _sync_visual() -> void:
@@ -482,7 +490,8 @@ func _sync_visual() -> void:
 		return
 	if _tex_frame_a == null and ContentRegistry.is_ready():
 		_refresh_rom_textures()
-	if _tex_frame_b != null and ((_state_frames / 8) % 2) == 1:
+	var frame_idx: int = get_current_anim_frame_index()
+	if _tex_frame_b != null and frame_idx == 1:
 		_sprite.texture = _tex_frame_b
 	elif _tex_frame_a != null:
 		_sprite.texture = _tex_frame_a

@@ -366,16 +366,21 @@ func build_rom_sprite_texture(
 
 	var tile_count: int = mini(tile_ids.size(), width_tiles * height_tiles)
 	for slot: int in range(tile_count):
-		var local_tile: int = tile_ids[slot] & 0x3F
+		var spec: int = tile_ids[slot]
+		var local_tile: int = spec & 0x3F
+		var flip_h: bool = (spec & Constants.OAM_FLIP_H) != 0
+		var flip_v: bool = (spec & Constants.OAM_FLIP_V) != 0
 		var tx0: int = (local_tile % 8) * Constants.TILE_SIZE
 		var ty0: int = (local_tile / 8) * Constants.TILE_SIZE
 		var dst_tx: int = (slot % width_tiles) * Constants.TILE_SIZE
 		var dst_ty: int = (slot / width_tiles) * Constants.TILE_SIZE
 		for py: int in range(Constants.TILE_SIZE):
-			var src_row: int = ((ty0 + py) * Constants.CHR_1K_BANK_SHEET_WIDTH + tx0) * 4
+			var src_py: int = (Constants.TILE_SIZE - 1 - py) if flip_v else py
+			var src_row: int = ((ty0 + src_py) * Constants.CHR_1K_BANK_SHEET_WIDTH + tx0) * 4
 			var dst_row: int = ((dst_ty + py) * img_w + dst_tx) * 4
 			for px: int in range(Constants.TILE_SIZE):
-				var gray: int = src_rgba[src_row + px * 4]
+				var src_px: int = (Constants.TILE_SIZE - 1 - px) if flip_h else px
+				var gray: int = src_rgba[src_row + src_px * 4]
 				var c_idx: int = clampi((gray + 42) / 85, 0, 3)
 				var dst_off: int = dst_row + px * 4
 				if c_idx == 0:

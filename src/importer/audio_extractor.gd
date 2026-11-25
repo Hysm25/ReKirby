@@ -252,6 +252,11 @@ static func _collect_stream_blocks(
 			var b: int = mapper.read_prg_byte(addr)
 			stream.append(b)
 			addr += 1
+			if b < 0xE0:
+				if (b & 0xE0) == 0xC0 and addr < win_max:
+					stream.append(mapper.read_prg_byte(addr))
+					addr += 1
+				continue
 			match b:
 				0xE0:
 					var a_reg: int = mapper.read_prg_byte(addr)

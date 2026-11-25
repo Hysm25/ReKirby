@@ -92,13 +92,16 @@ func _test_enemy_behaviors_and_inhale_copy() -> void:
 	var lvl: LevelMap = _build_flat_arena()
 	var kirby_pos: Vector2 = Vector2(48.0, 144.0)
 
-	# Waddle Dee patrols horizontally
+	# Waddle Dee patrols horizontally and cycles animation frames
 	var dee: EnemyBase = EnemyBase.new()
 	dee.setup(EnemyBase.EnemyType.WADDLE_DEE, Vector2(120.0, 144.0), lvl, -1)
 	var dee_start_x: float = dee.pos.x
-	for _i: int in range(15):
+	var dee_frames: Dictionary = {}
+	for _i: int in range(16):
 		dee.step_physics(kirby_pos)
+		dee_frames[dee.get_current_anim_frame_index()] = true
 	_assert_true(dee.pos.x < dee_start_x and dee.on_ground, "Waddle Dee walks along solid floor")
+	_assert_eq_int(dee_frames.size(), 2, "Waddle Dee alternates between 2 walk animation frames")
 
 	# Waddle Doo fires enemy_beam
 	var doo: EnemyBase = EnemyBase.new()

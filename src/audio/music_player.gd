@@ -1,12 +1,13 @@
 class_name MusicPlayer
 extends Node
 ## PRG-ROM Music & SFX sequence interpreter driving APUEngine at 60 TPS
-## with priority-based SFX channel overrides and zero BGM drift.
+## matching Bank 29 HAL sound driver semantics (5-bit signed note offsets,
+## master volume/gate/envelope VMs, explicit 0xC0..0xDF durations, nested 0xFC/0xFD loops).
 
 const Constants = preload("res://src/core/constants.gd")
 const APUEngine = preload("res://src/audio/apu_engine.gd")
 
-const MAX_COMMANDS_PER_TICK: int = 32
+const MAX_COMMANDS_PER_TICK: int = 64
 const MAX_LOOP_STACK: int = 8
 
 # Channel slot mapping: 0=Pulse1 ($4000), 1=Pulse2 ($4004), 2=Triangle ($4008), 3=Noise ($400C), 4=DMC
@@ -29,19 +30,23 @@ class ChannelRunner extends RefCounted:
 	var cursor: int = 0
 	var delay_frames: int = 0
 	var duration_ticks: int = 1
+	var gate_frames: int = -1
+	var gate_ratio: int = 0
 	var tempo_idx: int = 0
 	var duty: int = 2
-	var volume: int = 12
-	var transpose: int = 0
-	var octave_offset: int = 0
+	var master_vol: int = 12
+	var env_vol: int = 15
+	var env_id: int = 0x80
+	var env_seq: Array = []
+	var env_cursor: int = 0
+	var env_wait: int = 0
+	var base_note: int = 0
 	var detune: int = 0
 	var last_period: int = 0
-	var tie_active: bool = false
+	var is_rested: bool = true
 	var dmc_addr_reg: int = 240
 	var dmc_len_reg: int = 11
-	var loop_count: int = 0
-	var loop_block: String = ""
-	var loop_cursor: int = 0
+	var loop_stack: Array[Dictionary] = []
 	var call_stack: Array[Dictionary] = []
 
 	func reset() -> void:
@@ -51,17 +56,21 @@ class ChannelRunner extends RefCounted:
 		cursor = 0
 		delay_frames = 0
 		duration_ticks = 1
+		gate_frames = -1
+		gate_ratio = 0
 		tempo_idx = 0
 		duty = 2
-		volume = 12
-		transpose = 0
-		octave_offset = 0
+		master_vol = 12
+		env_vol = 15
+		env_id = 0x80
+		env_seq = []
+		env_cursor = 0
+		env_wait = 0
+		base_note = 0
 		detune = 0
 		last_period = 0
-		tie_active = false
-		loop_count = 0
-		loop_block = ""
-		loop_cursor = 0
+		is_rested = true
+		loop_stack.clear()
 		call_stack.clear()
 
 	func start_stream(p_blocks: Dictionary, start_addr: int, p_reg_offset: int, p_hw_ch: int, p_is_sfx: bool, p_priority: int = 0) -> void:
@@ -76,6 +85,12 @@ class ChannelRunner extends RefCounted:
 		active = blocks.has(cur_block_key)
 		delay_frames = 1
 
+	func effective_volume() -> int:
+		if is_rested:
+			return 0
+		var atten: int = 15 - clampi(master_vol, 0, 15)
+		return clampi(env_vol - atten, 0, 15)
+
 
 var _apu: APUEngine = null
 var _bgm_channels: Array[ChannelRunner] = []
@@ -84,6 +99,7 @@ var _current_bgm_id: int = -1
 var _current_sfx_id: int = -1
 var _period_table: PackedInt32Array = PackedInt32Array()
 var _tempo_tables: Array[PackedInt32Array] = []
+var _envelopes: Dictionary = {}
 
 
 func _ready() -> void:
@@ -142,6 +158,9 @@ func _sync_rom_tables() -> void:
 				for item: Variant in row_arr:
 					p_row.append(int(item))
 				_tempo_tables.append(p_row)
+	var env_raw: Variant = tables.get("envelopes", {})
+	if env_raw is Dictionary:
+		_envelopes = env_raw as Dictionary
 
 
 func get_current_bgm_id() -> int:
@@ -176,6 +195,7 @@ func play_bgm(track_id: int) -> bool:
 
 	for ch: ChannelRunner in _bgm_channels:
 		ch.reset()
+		_silence_channel(ch.hw_ch)
 	if _apu != null:
 		_apu.write_register(0x4015, 0x0F)
 
@@ -187,7 +207,6 @@ func play_bgm(track_id: int) -> bool:
 		var reg_off: int = int(ch_d.get("reg_offset", 0))
 		var start_addr: int = int(ch_d.get("start_addr", 0))
 		var hw_ch: int = int(REG_TO_HW_CH.get(reg_off, 0))
-		# Second 0x0C channel in HAL headers routes to DMC slot 4
 		if reg_off == 0x0C and (assigned_mask & (1 << 3)) != 0:
 			hw_ch = 4
 		elif (assigned_mask & (1 << hw_ch)) != 0 and hw_ch < 4:
@@ -221,7 +240,6 @@ func play_sfx(sfx_id: int) -> bool:
 		var start_addr: int = int(ch_d.get("start_addr", 0))
 		var hw_ch: int = int(REG_TO_HW_CH.get(reg_off, 0))
 		var s_runner: ChannelRunner = _sfx_channels[hw_ch]
-		# Lower priority value or higher urgency: allow preemption if active SFX priority >= new or higher
 		if s_runner.active and s_runner.priority > prio:
 			continue
 		s_runner.start_stream(blocks, start_addr, reg_off, hw_ch, true, prio)
@@ -241,6 +259,8 @@ func stop_all() -> void:
 	_current_bgm_id = -1
 	_current_sfx_id = -1
 	if _apu != null:
+		for hw_i: int in range(4):
+			_silence_channel(hw_i)
 		_apu.write_register(0x4015, 0x00)
 
 
@@ -255,8 +275,9 @@ func step_frame() -> void:
 			if sfx_r.active:
 				any_sfx = true
 			elif bgm_r.active and _apu != null:
-				# Restore BGM channel gating cleanly after SFX finishes
 				_restore_bgm_channel(bgm_r)
+			elif _apu != null:
+				_silence_channel(hw_ch)
 		if bgm_r.active:
 			_step_runner(bgm_r, not sfx_r.active)
 	if not any_sfx:
@@ -266,22 +287,24 @@ func step_frame() -> void:
 func _restore_bgm_channel(ch: ChannelRunner) -> void:
 	if _apu == null:
 		return
-	var ctrl_val: int = ((ch.duty & 3) << 6) | 0x30 | clampi(ch.volume, 0, 15)
-	if ch.hw_ch == 0:
-		_apu.write_register(0x4000, ctrl_val)
-	elif ch.hw_ch == 1:
-		_apu.write_register(0x4004, ctrl_val)
-	elif ch.hw_ch == 2:
-		_apu.write_register(0x4008, 0x80 | 0x7F)
-	elif ch.hw_ch == 3:
-		_apu.write_register(0x400C, 0x30 | clampi(ch.volume, 0, 15))
+	if ch.is_rested:
+		_silence_channel(ch.hw_ch)
+		return
+	_apply_channel_volume_to_apu(ch)
 
 
 func _step_runner(ch: ChannelRunner, output_to_apu: bool) -> void:
 	if not ch.active:
 		return
+
+	# Step note gate & envelope while waiting out current note duration
 	if ch.delay_frames > 1:
 		ch.delay_frames -= 1
+		if ch.gate_frames > 0:
+			ch.gate_frames -= 1
+			if ch.gate_frames == 0:
+				_trigger_release_envelope(ch, output_to_apu)
+		_step_envelope(ch, output_to_apu)
 		return
 
 	var ops: int = 0
@@ -299,7 +322,7 @@ func _step_runner(ch: ChannelRunner, output_to_apu: bool) -> void:
 		ch.cursor += 1
 
 		if b < 0xE0:
-			_handle_note_byte(ch, b, output_to_apu)
+			_handle_note_byte(ch, stream, b, output_to_apu)
 			ch.delay_frames = maxi(1, ch.duration_ticks)
 			break
 
@@ -311,19 +334,27 @@ func _step_runner(ch: ChannelRunner, output_to_apu: bool) -> void:
 				ch.dmc_len_reg = l_reg
 			0xE1:
 				var arg: int = _read_arg(stream, ch)
-				ch.tempo_idx = arg % maxi(1, _tempo_tables.size())
+				if not _tempo_tables.is_empty():
+					ch.tempo_idx = arg % _tempo_tables.size()
 			0xE2:
+				var _len_arg: int = _read_arg(stream, ch)
 				var d_arg: int = _read_arg(stream, ch)
-				var _m_arg: int = _read_arg(stream, ch)
 				ch.duty = (d_arg >> 6) & 3
+				ch.env_vol = clampi(d_arg & 0x0F, 0, 15)
+				if output_to_apu:
+					_apply_channel_volume_to_apu(ch)
 			0xE3:
 				ch.detune = _to_signed_byte(_read_arg(stream, ch))
 			0xF0:
-				var d_val: int = _read_arg(stream, ch)
-				ch.duty = d_val & 3
-				ch.volume = clampi(d_val & 0x0F, 1, 15)
+				var v_arg: int = _read_arg(stream, ch)
+				ch.master_vol = v_arg & 0x0F
+				if output_to_apu:
+					_apply_channel_volume_to_apu(ch)
 			0xF1:
-				ch.octave_offset += _to_signed_byte(_read_arg(stream, ch))
+				var dv: int = _to_signed_byte(_read_arg(stream, ch))
+				ch.master_vol = clampi(ch.master_vol + dv, 0, 15)
+				if output_to_apu:
+					_apply_channel_volume_to_apu(ch)
 			0xF2:
 				var t_idx: int = _read_arg(stream, ch)
 				if not _tempo_tables.is_empty():
@@ -331,18 +362,16 @@ func _step_runner(ch: ChannelRunner, output_to_apu: bool) -> void:
 			0xF3:
 				ch.duration_ticks = maxi(1, _read_arg(stream, ch))
 			0xF4:
-				var vol_v: int = _read_arg(stream, ch)
-				ch.volume = clampi((vol_v >> 4) & 0x0F if vol_v > 15 else vol_v, 0, 15)
+				ch.gate_ratio = _read_arg(stream, ch)
 			0xF5:
-				ch.transpose = _to_signed_byte(_read_arg(stream, ch))
+				ch.base_note = _read_arg(stream, ch) & 0x7F
 			0xF6:
-				var inst_v: int = _read_arg(stream, ch)
-				if inst_v >= 0x80:
-					ch.volume = clampi(inst_v & 0x0F, 0, 15)
-				else:
-					ch.volume = clampi(10 + (inst_v & 0x05), 4, 15)
+				ch.env_id = _read_arg(stream, ch)
+				if ch.env_id >= 0x80:
+					ch.env_seq = []
+					ch.env_vol = 15
 			0xF7:
-				var _mod_v: int = _read_arg(stream, ch)
+				var _tbl_v: int = _read_arg(stream, ch)
 			0xF8:
 				var j_lo: int = _read_arg(stream, ch)
 				var j_hi: int = _read_arg(stream, ch)
@@ -368,18 +397,28 @@ func _step_runner(ch: ChannelRunner, output_to_apu: bool) -> void:
 					ch.cur_block_key = String(ret.get("block", ""))
 					ch.cursor = int(ret.get("cursor", 0))
 			0xFC:
-				ch.loop_count = _read_arg(stream, ch)
-				ch.loop_block = ch.cur_block_key
-				ch.loop_cursor = ch.cursor
+				var l_cnt: int = _read_arg(stream, ch)
+				if ch.loop_stack.size() < MAX_LOOP_STACK:
+					ch.loop_stack.append({
+						"count": l_cnt,
+						"block": ch.cur_block_key,
+						"cursor": ch.cursor,
+					})
 			0xFD:
-				if ch.loop_count > 1:
-					ch.loop_count -= 1
-					ch.cur_block_key = ch.loop_block
-					ch.cursor = ch.loop_cursor
+				if not ch.loop_stack.is_empty():
+					var top: Dictionary = ch.loop_stack[ch.loop_stack.size() - 1] as Dictionary
+					var rem: int = int(top.get("count", 1)) - 1
+					if rem > 0:
+						top["count"] = rem
+						ch.cur_block_key = String(top.get("block", ch.cur_block_key))
+						ch.cursor = int(top.get("cursor", 0))
+					else:
+						ch.loop_stack.pop_back()
 			0xFE:
 				var _skip_v: int = _read_arg(stream, ch)
 			0xFF:
 				ch.active = false
+				ch.is_rested = true
 				if output_to_apu and _apu != null:
 					_silence_channel(ch.hw_ch)
 				break
@@ -397,15 +436,90 @@ static func _to_signed_byte(b: int) -> int:
 	return b - 256 if b >= 128 else b
 
 
-func _handle_note_byte(ch: ChannelRunner, b: int, output_to_apu: bool) -> void:
+static func decode_signed_5bit_note_offset(note_bits: int) -> int:
+	var n: int = note_bits & 0x1F
+	return (n - 32) if (n & 0x10) != 0 else n
+
+
+func _start_attack_envelope(ch: ChannelRunner) -> void:
+	if ch.env_id >= 0x80:
+		ch.env_seq = []
+		ch.env_vol = 15
+		return
+	var key: String = str(ch.env_id * 2)
+	if _envelopes.has(key):
+		ch.env_seq = _envelopes[key] as Array
+		ch.env_cursor = 0
+		ch.env_wait = 0
+		ch.env_vol = 15
+		_step_envelope(ch, false)
+	else:
+		ch.env_seq = []
+		ch.env_vol = 15
+
+
+func _trigger_release_envelope(ch: ChannelRunner, output_to_apu: bool) -> void:
+	if ch.env_id < 0x80:
+		var rel_key: String = str(ch.env_id * 2 + 1)
+		if _envelopes.has(rel_key):
+			ch.env_seq = _envelopes[rel_key] as Array
+			ch.env_cursor = 0
+			ch.env_wait = 0
+			_step_envelope(ch, output_to_apu)
+			return
+	ch.is_rested = true
+	if output_to_apu:
+		_silence_channel(ch.hw_ch)
+
+
+func _step_envelope(ch: ChannelRunner, output_to_apu: bool) -> void:
+	if ch.env_seq.is_empty() or ch.is_rested:
+		return
+	if ch.env_wait > 1:
+		ch.env_wait -= 1
+		return
+	var steps: int = 0
+	while ch.env_cursor < ch.env_seq.size() and steps < 16:
+		steps += 1
+		var cmd: int = int(ch.env_seq[ch.env_cursor]) & 0xFF
+		ch.env_cursor += 1
+		if cmd < 0x20:
+			ch.env_wait = maxi(1, cmd)
+			break
+		elif cmd < 0x40:
+			ch.env_wait = maxi(1, cmd & 0x0F)
+			break
+		elif cmd < 0x60:
+			ch.env_vol = cmd & 0x0F
+		elif cmd < 0x80:
+			var dv: int = cmd & 0x0F
+			if dv >= 8:
+				dv -= 16
+			ch.env_vol = clampi(ch.env_vol + dv, 0, 15)
+		elif cmd < 0xA0:
+			ch.duty = cmd & 0x03
+		elif cmd == 0xF0 and ch.env_cursor < ch.env_seq.size():
+			ch.env_cursor += 1
+		elif cmd == 0xFF:
+			ch.env_seq = []
+			break
+	if output_to_apu:
+		_apply_channel_volume_to_apu(ch)
+
+
+func _handle_note_byte(ch: ChannelRunner, stream: Array, b: int, output_to_apu: bool) -> void:
 	var dur_idx: int = (b >> 5) & 0x07
-	if dur_idx < 6 and ch.tempo_idx < _tempo_tables.size():
+	if dur_idx == 6:
+		ch.duration_ticks = maxi(1, _read_arg(stream, ch))
+	elif dur_idx < 6 and ch.tempo_idx < _tempo_tables.size():
 		var t_row: PackedInt32Array = _tempo_tables[ch.tempo_idx]
 		if dur_idx < t_row.size():
 			ch.duration_ticks = maxi(1, t_row[dur_idx])
 
-	if not output_to_apu or _apu == null:
-		return
+	if ch.gate_ratio > 0:
+		ch.gate_frames = maxi(1, (ch.gate_ratio * ch.duration_ticks) >> 8)
+	else:
+		ch.gate_frames = -1
 
 	# Noise / DMC track channel (0x0C)
 	if ch.reg_offset == 0x0C:
@@ -413,37 +527,54 @@ func _handle_note_byte(ch: ChannelRunner, b: int, output_to_apu: bool) -> void:
 		if is_dmc_cmd or ch.hw_ch == 4:
 			var rate_idx: int = b & 0x0F
 			if rate_idx == 0x0F:
+				ch.is_rested = true
 				return
-			var dpcm: PackedByteArray = ContentRegistry.get_dpcm_sample_bytes(ch.dmc_addr_reg, ch.dmc_len_reg)
-			if not dpcm.is_empty():
-				_apu.load_dpcm_sample(dpcm, rate_idx, false)
-				_apu.write_register(0x4010, rate_idx)
-				_apu.write_register(0x4015, _apu.get_active_channel_mask() | 0x1F)
+			ch.is_rested = false
+			if output_to_apu and _apu != null:
+				var dpcm: PackedByteArray = ContentRegistry.get_dpcm_sample_bytes(ch.dmc_addr_reg, ch.dmc_len_reg)
+				if not dpcm.is_empty():
+					_apu.load_dpcm_sample(dpcm, rate_idx, false)
+					_apu.write_register(0x4010, rate_idx)
+					_apu.write_register(0x4015, _apu.get_active_channel_mask() | 0x1F)
 			return
 		var noise_p: int = b & 0x0F
 		if noise_p == 0x0F:
-			_apu.write_register(0x400C, 0x30)
-		else:
-			_apu.write_register(0x400C, 0x30 | clampi(ch.volume, 1, 15))
+			ch.is_rested = true
+			if output_to_apu:
+				_silence_channel(ch.hw_ch)
+			return
+		ch.is_rested = false
+		_start_attack_envelope(ch)
+		if output_to_apu and _apu != null:
+			var vol_n: int = maxi(1, ch.effective_volume())
+			_apu.write_register(0x400C, 0x30 | vol_n)
 			_apu.write_register(0x400E, noise_p)
 			_apu.write_register(0x400F, 0xF8)
 		return
 
 	# Melodic Pulse / Triangle channels
-	var note_idx: int = b & 0x1F
-	if note_idx == 0x10 or (b & 0xE0) == 0xC0:
-		# Rest or tie/slur
-		if note_idx == 0x10 and (b & 0xE0) != 0xC0:
+	var note_bits: int = b & 0x1F
+	if note_bits == 0x10:
+		ch.is_rested = true
+		ch.gate_frames = -1
+		if output_to_apu:
 			_silence_channel(ch.hw_ch)
 		return
 
+	ch.is_rested = false
+	_start_attack_envelope(ch)
 	if _period_table.is_empty():
 		return
-	var pitched_idx: int = clampi(note_idx + ch.transpose + ch.octave_offset * 12, 0, _period_table.size() - 1)
+	var signed_offset: int = decode_signed_5bit_note_offset(note_bits)
+	var pitched_idx: int = clampi(ch.base_note + signed_offset, 0, _period_table.size() - 1)
 	var period: int = clampi(_period_table[pitched_idx] + ch.detune, 8, 0x7FF)
 	ch.last_period = period
 
-	var ctrl: int = ((ch.duty & 3) << 6) | 0x30 | clampi(ch.volume, 1, 15)
+	if not output_to_apu or _apu == null:
+		return
+
+	var out_vol: int = ch.effective_volume()
+	var ctrl: int = ((ch.duty & 3) << 6) | 0x30 | out_vol
 	if ch.hw_ch == 0:
 		_apu.write_register(0x4000, ctrl)
 		_apu.write_register(0x4002, period & 0xFF)
@@ -453,9 +584,29 @@ func _handle_note_byte(ch: ChannelRunner, b: int, output_to_apu: bool) -> void:
 		_apu.write_register(0x4006, period & 0xFF)
 		_apu.write_register(0x4007, 0xF8 | ((period >> 8) & 0x07))
 	elif ch.hw_ch == 2:
-		_apu.write_register(0x4008, 0xFF)
+		_apu.write_register(0x4008, 0xFF if out_vol >= 4 else 0x00)
 		_apu.write_register(0x400A, period & 0xFF)
 		_apu.write_register(0x400B, 0xF8 | ((period >> 8) & 0x07))
+
+
+func _apply_channel_volume_to_apu(ch: ChannelRunner) -> void:
+	if _apu == null:
+		return
+	var out_vol: int = ch.effective_volume()
+	var ctrl_val: int = ((ch.duty & 3) << 6) | 0x30 | out_vol
+	if ch.hw_ch == 0:
+		_apu.write_register(0x4000, ctrl_val)
+	elif ch.hw_ch == 1:
+		_apu.write_register(0x4004, ctrl_val)
+	elif ch.hw_ch == 2:
+		if out_vol >= 4:
+			_apu.write_register(0x4008, 0xFF)
+			_apu.write_register(0x400B, 0xF8 | ((ch.last_period >> 8) & 0x07))
+		else:
+			_apu.write_register(0x4008, 0x00)
+			_apu.write_register(0x400B, (ch.last_period >> 8) & 0x07)
+	elif ch.hw_ch == 3:
+		_apu.write_register(0x400C, 0x30 | out_vol)
 
 
 func _silence_channel(hw_ch: int) -> void:
@@ -467,6 +618,7 @@ func _silence_channel(hw_ch: int) -> void:
 		_apu.write_register(0x4004, 0x30)
 	elif hw_ch == 2:
 		_apu.write_register(0x4008, 0x00)
+		_apu.write_register(0x400B, 0x00)
 	elif hw_ch == 3:
 		_apu.write_register(0x400C, 0x30)
 

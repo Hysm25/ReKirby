@@ -165,7 +165,7 @@ class TriangleChannel extends RefCounted:
 			linear_reload_flag = false
 
 	func sample(cpu_cycles: float) -> int:
-		if enabled and length_counter > 0 and linear_counter > 0 and period >= 2:
+		if enabled and length_counter > 0 and linear_counter > 0 and period >= 8:
 			timer_acc -= cpu_cycles
 			var guard: int = 0
 			var reload_val: float = float(period + 1)
@@ -175,7 +175,7 @@ class TriangleChannel extends RefCounted:
 				guard += 1
 			if timer_acc <= 0.0:
 				timer_acc = reload_val
-		if not enabled or period < 2:
+		if not enabled or length_counter <= 0 or linear_counter <= 0 or period < 8:
 			return 0
 		return int(TRIANGLE_STEPS[seq_pos])
 
@@ -544,8 +544,8 @@ func synthesize_frame_samples(sample_count: int = SAMPLES_PER_FRAME) -> PackedFl
 	var p2_duty_arr: Array = DUTY_CYCLES[_pulse2.duty & 3] as Array
 	var p2_vol: int = 0 if _pulse2.is_muted_by_hardware() else (_pulse2.volume if _pulse2.constant_vol else _pulse2.env_decay)
 
-	var tri_active: bool = _triangle.enabled and _triangle.length_counter > 0 and _triangle.linear_counter > 0 and _triangle.period >= 2
-	var tri_out_on: bool = _triangle.enabled and _triangle.period >= 2
+	var tri_active: bool = _triangle.enabled and _triangle.length_counter > 0 and _triangle.linear_counter > 0 and _triangle.period >= 8
+	var tri_out_on: bool = tri_active
 	var tri_reload: float = float(_triangle.period + 1)
 	var tri_acc: float = _triangle.timer_acc
 	var tri_pos: int = _triangle.seq_pos
@@ -571,27 +571,27 @@ func synthesize_frame_samples(sample_count: int = SAMPLES_PER_FRAME) -> PackedFl
 	var half_cyc: float = CYCLES_PER_SAMPLE * 0.5
 	var full_cyc: float = CYCLES_PER_SAMPLE
 	var dc_lp: float = _dc_lp
-	var gain_mul: float = 1.25 * _master_gain
+	var gain_mul: float = _master_gain
 
 	for i: int in range(sample_count):
 		var p1: int = 0
-		if p1_period >= 8:
+		if p1_period >= 8 and p1_vol > 0:
 			p1_acc -= half_cyc
 			if p1_acc <= 0.0:
 				var steps1: int = mini(63, int(-p1_acc / p1_reload) + 1)
 				p1_acc += float(steps1) * p1_reload
 				p1_pos = (p1_pos + steps1) & 7
-			if p1_vol > 0 and int(p1_duty_arr[p1_pos]) != 0:
+			if int(p1_duty_arr[p1_pos]) != 0:
 				p1 = p1_vol
 
 		var p2: int = 0
-		if p2_period >= 8:
+		if p2_period >= 8 and p2_vol > 0:
 			p2_acc -= half_cyc
 			if p2_acc <= 0.0:
 				var steps2: int = mini(63, int(-p2_acc / p2_reload) + 1)
 				p2_acc += float(steps2) * p2_reload
 				p2_pos = (p2_pos + steps2) & 7
-			if p2_vol > 0 and int(p2_duty_arr[p2_pos]) != 0:
+			if int(p2_duty_arr[p2_pos]) != 0:
 				p2 = p2_vol
 
 		if tri_active:
@@ -635,17 +635,13 @@ func synthesize_frame_samples(sample_count: int = SAMPLES_PER_FRAME) -> PackedFl
 							break
 					dmc_cur_byte = dmc_bytes[dmc_byte_cur]
 
-		var pulse_sum: int = p1 + p2
-		var pulse_out: float = 0.0
-		if pulse_sum > 0:
-			pulse_out = 95.88 / ((8128.0 / float(pulse_sum)) + 100.0)
-
-		var tnd_sum: float = float(tri) / 8227.0 + float(noi) / 12241.0 + float(dmc_level) / 22638.0
-		var tnd_out: float = 0.0
-		if tnd_sum > 0.0:
-			tnd_out = 159.79 / ((1.0 / tnd_sum) + 100.0)
-
-		var raw_unipolar: float = pulse_out + tnd_out
+		var raw_unipolar: float = (
+			(float(p1) / 15.0) * 0.22
+			+ (float(p2) / 15.0) * 0.22
+			+ (float(tri) / 15.0) * 0.28
+			+ (float(noi) / 15.0) * 0.10
+			+ (float(dmc_level) / 127.0) * 0.18
+		)
 		dc_lp = dc_lp * 0.996 + raw_unipolar * 0.004
 		var sample_val: float = clampf((raw_unipolar - dc_lp) * gain_mul, -0.99, 0.99)
 		out[i] = sample_val

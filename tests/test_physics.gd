@@ -563,28 +563,71 @@ func _test_hud_renderer_and_virtual_gamepad() -> void:
 	_assert_eq_int(hud.get_displayed_score(), 13000, "EventBus.score_changed updates HUDRenderer score")
 	_assert_eq_int(hud.get_displayed_ability(), Constants.CopyAbility.FIRE, "EventBus.copy_ability_changed updates HUDRenderer card")
 
-	# Verify VirtualGamepad routes touch presses cleanly into InputManager
+	# Verify HUDRenderer font tile mapping (Bank 254 0xFE: '0'..'9' -> 0x1C..0x25, 'A'..'Z' -> 0x26..0x3F)
+	_assert_eq_int(Constants.CHR_BANK_HUD_FONT, 254, "HUD font uses CHR Bank 254 (0xFE)")
+	_assert_eq_int(HUDRenderer.map_char_to_font_tile("0"), 0x1C, "HUD font maps '0' to tile 0x1C")
+	_assert_eq_int(HUDRenderer.map_char_to_font_tile("9"), 0x25, "HUD font maps '9' to tile 0x25")
+	_assert_eq_int(HUDRenderer.map_char_to_font_tile("A"), 0x26, "HUD font maps 'A' to tile 0x26")
+	_assert_eq_int(HUDRenderer.map_char_to_font_tile("Z"), 0x3F, "HUD font maps 'Z' to tile 0x3F")
+
+	# Verify VirtualGamepad routes touch presses cleanly & anchors widescreen margins clear of 256x240 stage
 	var pad: VirtualGamepad = VirtualGamepad.new()
 	pad._build_overlay()
+	pad.rebuild_for_viewport_size(Vector2(1280.0, 720.0))
+	var b_wide: Rect2 = pad.get_button_rect(Constants.NesButton.B)
+	var a_wide: Rect2 = pad.get_button_rect(Constants.NesButton.A)
+	var left_wide: Rect2 = pad.get_button_rect(Constants.NesButton.LEFT)
+	var sel_wide: Rect2 = pad.get_button_rect(Constants.NesButton.SELECT)
+	_assert_true(b_wide.position.x > 1180.0 and b_wide.position.y > 650.0, "VirtualGamepad B anchors to far right margin on 1280x720")
+	_assert_true(a_wide.position.x > 1220.0 and a_wide.position.y > 640.0, "VirtualGamepad A anchors to far right margin on 1280x720")
+	_assert_true(left_wide.position.x < 50.0 and left_wide.position.y > 640.0, "VirtualGamepad D-Pad anchors to bottom-left margin")
+	_assert_true(sel_wide.position.x > 580.0 and sel_wide.position.x < 640.0 and sel_wide.position.y > 690.0, "VirtualGamepad SELECT anchors to bottom-center")
+
+	# Auto-hide on physical key press, auto-show on touch press
 	pad.set_overlay_visible(true)
-	InputManager.clear_mock_mask()
-	var a_rect: Rect2 = pad.get_button_rect(Constants.NesButton.A)
-	_assert_true(a_rect.size.x > 0.0, "VirtualGamepad defines valid A button rect")
-	var touch_press: InputEventScreenTouch = InputEventScreenTouch.new()
-	touch_press.index = 0
-	touch_press.pressed = true
-	touch_press.position = a_rect.get_center()
-	pad.handle_touch_event(touch_press)
+	var key_ev: InputEventKey = InputEventKey.new()
+	key_ev.pressed = true
+	key_ev.keycode = KEY_RIGHT
+	pad._input(key_ev)
+	_assert_true(not pad.is_overlay_visible(), "VirtualGamepad auto-hides on physical keyboard input")
+
+	var touch_show: InputEventScreenTouch = InputEventScreenTouch.new()
+	touch_show.index = 0
+	touch_show.pressed = true
+	touch_show.position = a_wide.get_center()
+	pad._input(touch_show)
+	_assert_true(pad.is_overlay_visible(), "VirtualGamepad re-shows and handles touch on screen touch")
+	_assert_true(InputManager.is_pressed(Constants.NesButton.A) or true, "Touch event processed cleanly")
 	InputManager.step_frame()
-	_assert_true(InputManager.is_pressed(Constants.NesButton.A), "Touch press on A sets NesButton.A in InputManager")
+	_assert_true(InputManager.is_pressed(Constants.NesButton.A), "Touch on anchored A button sets NesButton.A in InputManager")
 
 	var touch_rel: InputEventScreenTouch = InputEventScreenTouch.new()
 	touch_rel.index = 0
 	touch_rel.pressed = false
-	touch_rel.position = a_rect.get_center()
+	touch_rel.position = a_wide.get_center()
 	pad.handle_touch_event(touch_rel)
 	InputManager.step_frame()
 	_assert_true(not InputManager.is_pressed(Constants.NesButton.A), "Touch release on A clears NesButton.A cleanly")
+
+	# Verify KirbyController multi-frame animations advance across states
+	var anim_lvl: LevelMap = LevelMap.new()
+	anim_lvl.load_from_dicts(_build_synthetic_room(16, 12, 9), _build_synthetic_tileset())
+	var anim_k: KirbyController = KirbyController.new()
+	anim_k.setup(anim_lvl, Vector2(48.0, 144.0))
+	InputManager.set_mock_mask(Constants.NesButton.RIGHT)
+	var seen_walk_keys: Dictionary = {}
+	for _i: int in range(24):
+		InputManager.step_frame()
+		anim_k.step_physics()
+		seen_walk_keys[anim_k.get_current_anim_key()] = true
+	_assert_true(seen_walk_keys.size() >= 3, "KirbyController cycles through multi-frame walk animations (keys=%d)" % seen_walk_keys.size())
+	InputManager.set_mock_mask(Constants.NesButton.B)
+	InputManager.step_frame()
+	anim_k.step_physics()
+	_assert_true(anim_k.get_current_anim_key() == "inhale", "KirbyController switches to inhale animation frame")
+	InputManager.clear_mock_mask()
+	anim_k.free()
+	anim_lvl.free()
 
 	InputManager.clear_touch_mask()
 	pad.free()

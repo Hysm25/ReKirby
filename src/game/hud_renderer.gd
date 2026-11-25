@@ -172,7 +172,7 @@ func _rebuild_hud_texture() -> void:
 	var font_rgba: PackedByteArray = font_img.get_data()
 	var card_rgba: PackedByteArray = card_img.get_data()
 
-	# Row 1 (Y=7): SCORE label + 7 digits using ROM font CHR bank 219
+	# Row 1 (Y=7): SCORE label + 7 digits using ROM font CHR bank 254 (0xFE)
 	var score_str: String = "SCORE %07d" % mini(_score, 9999999)
 	_draw_rom_text(out_rgba, font_rgba, score_str, 12, 7, pal_bg1, pal_bg0[0])
 
@@ -187,7 +187,7 @@ func _rebuild_hud_texture() -> void:
 	_draw_rom_text(out_rgba, font_rgba, lives_str, 30, 24, pal_bg1, pal_bg0[0])
 
 	# HP Pips using Bank 221 tile 0x09 (pip glyph)
-	_draw_rom_text(out_rgba, font_rgba, "HP", 56, 24, pal_bg0, pal_bg0[0])
+	_draw_rom_text(out_rgba, font_rgba, "HP", 56, 24, pal_bg1, pal_bg0[0])
 	var pip_count: int = clampi(_max_hp, 1, 8)
 	for i: int in range(pip_count):
 		var px: int = 76 + i * 10
@@ -277,13 +277,19 @@ static func _ability_label(ability: int) -> String:
 			return "NORMAL"
 
 
-static func _ascii_to_rom_font_tile(ch: String) -> int:
+static func map_char_to_font_tile(ch: String) -> int:
+	if ch.is_empty():
+		return -1
 	var code: int = ch.unicode_at(0)
 	if code >= 48 and code <= 57:
-		return code - 48 # '0'..'9' -> 0x00..0x09 in CHR Bank 219 (0xDB)
+		return 0x1C + (code - 48) # '0'..'9' -> 0x1C..0x25 in CHR Bank 254 (0xFE)
 	if code >= 65 and code <= 90:
-		return 0x1A + (code - 65) # 'A'..'Z' -> 0x1A..0x33 in CHR Bank 219 (0xDB)
+		return 0x26 + (code - 65) # 'A'..'Z' -> 0x26..0x3F in CHR Bank 254 (0xFE)
 	return -1
+
+
+static func _ascii_to_rom_font_tile(ch: String) -> int:
+	return map_char_to_font_tile(ch)
 
 
 func _draw_rom_text(
@@ -314,10 +320,10 @@ func _draw_rom_text(
 					continue
 				var gray: int = font_rgba[src_row + px * 4]
 				var c_idx: int = clampi((gray + 42) / 85, 0, 3)
-				# Color 1 in Bank 219 is tile background cell; Color 2/3 are glyph strokes
-				if c_idx == 1:
+				# Color 0 in Bank 254 (0xFE) is transparent background; 3=primary stroke, 2=shadow, 1=accent
+				if c_idx == 0:
 					continue
-				var col: Color = palette[1] if c_idx == 3 else (palette[2] if c_idx == 2 else bg_override)
+				var col: Color = palette[1] if c_idx == 3 else (bg_override if c_idx == 2 else palette[2])
 				var dst_off: int = dst_row + dx * 4
 				out_rgba[dst_off] = clampi(int(round(col.r * 255.0)), 0, 255)
 				out_rgba[dst_off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)

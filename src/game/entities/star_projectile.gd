@@ -337,13 +337,19 @@ func _refresh_rom_textures() -> void:
 				var r_sp2: String = "room_%d_sp_2" % _level_map.get_room_id()
 				if not ContentRegistry.get_palette_indices(r_sp2).is_empty():
 					apple_pal = r_sp2
+			var fh: int = Constants.OAM_FLIP_H
 			_tex_a = ContentRegistry.build_rom_sprite_texture(
 				154,
-				PackedInt32Array([24, 26, 25, 27]),
+				PackedInt32Array([24, 24 | fh, 25, 25 | fh]),
 				2, 2,
 				apple_pal
 			)
-			_tex_b = _tex_a
+			_tex_b = ContentRegistry.build_rom_sprite_texture(
+				154,
+				PackedInt32Array([26, 26 | fh, 27, 27 | fh]),
+				2, 2,
+				apple_pal
+			)
 		Kind.ENEMY_FIRE:
 			_tex_a = ContentRegistry.build_rom_sprite_texture(
 				Constants.CHR_BANK_ABILITY_EFFECTS,

@@ -231,11 +231,20 @@ func _test_live_rom_audio_extraction_and_music_player() -> void:
 	_assert_true(mp.is_bgm_playing(), "MusicPlayer reports BGM active on Track 0")
 
 	var peak_bgm: float = 0.0
-	for _i: int in range(12):
+	var min_note_period: int = 9999
+	for _i: int in range(60):
 		mp.step_frame()
 		apu.step_audio_frame()
 		peak_bgm = maxf(peak_bgm, apu.get_last_peak_amplitude())
+		for ch_runner: MusicPlayer.ChannelRunner in mp._bgm_channels:
+			if ch_runner.active and not ch_runner.is_rested and ch_runner.last_period > 0:
+				min_note_period = mini(min_note_period, ch_runner.last_period)
 	_assert_true(peak_bgm > 0.02 and peak_bgm <= 1.0, "ROM Track 0 drives audible non-clipping 2A03 output (peak=%.4f)" % peak_bgm)
+	_assert_true(min_note_period >= 45, "ROM Track 0 plays musical periods without ultrasonic whine (min_period=%d)" % min_note_period)
+
+	# Verify 5-bit signed note offset decoding (0x19 -> -7, NOT +25)
+	_assert_eq_int(MusicPlayer.decode_signed_5bit_note_offset(0x19), -7, "5-bit signed note offset 0x19 decodes to -7")
+	_assert_eq_int(MusicPlayer.decode_signed_5bit_note_offset(0x05), 5, "5-bit signed note offset 0x05 decodes to +5")
 
 	# Trigger SFX override via EventBus and verify BGM keeps running seamlessly afterward
 	EventBus.sfx_requested.emit(1)
@@ -247,6 +256,9 @@ func _test_live_rom_audio_extraction_and_music_player() -> void:
 
 	EventBus.audio_stop_requested.emit()
 	_assert_true(not mp.is_bgm_playing(), "EventBus.audio_stop_requested stops playback cleanly")
+	for _i: int in range(4):
+		apu.step_audio_frame()
+	_assert_true(apu.get_last_peak_amplitude() < 0.01, "APU falls silent after audio_stop_requested (peak=%.4f)" % apu.get_last_peak_amplitude())
 
 	mp.free()
 	apu.free()
