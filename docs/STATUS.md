@@ -5,8 +5,8 @@
 
 ---
 
-## Current Workspace Snapshot (Phase 0 & Phase 1 Core Complete)
-- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), ROM Extraction Pipeline Core (`src/importer/`), Mandatory ROM Setup Guard (`src/main.gd`, `src/main.tscn`), and headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`) implemented and passing 100%.
+## Current Workspace Snapshot (Phase 1.5 PRG Table & Level Extraction Complete)
+- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM & World 1 PRG-ROM Extraction Pipeline (`src/importer/` including `WorldExtractor`), Mandatory ROM Setup Guard (`src/main.gd`, `src/main.tscn`), and headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`) implemented and passing 100% (`91/91`).
 - **Completed So Far**:
   - [x] Audited workspace directory, relocated local ROM into git-ignored `rom/`, and verified `rom/*.nes` exclusion.
   - [x] Established clean-room `.gitignore` and `AGENTS.md` execution blueprint.
@@ -23,14 +23,14 @@
 - [x] Implement `src/main.gd` + `src/main.tscn` with Mandatory ROM Setup Guard & `256x240` Missing ROM setup screen.
 - [x] Set up headless test harness (`tests/test_runner.gd`).
 
-### Phase 1: ROM Extractor & Asset Importer (Core Completed; PRG Table Mapping Next)
+### Phase 1: ROM Extractor & Asset Importer (Completed)
 - [x] **ROM Validator (`src/importer/rom_validator.gd`)**: iNES header parsing, Mapper 4 MMC3 validation, CRC32 & SHA-256 verification.
 - [x] **MMC3 Virtual Mapper (`src/importer/mmc3_mapper.gd`)**: 8 KB PRG bank switching (`$8000-$FFFF`), 1 KB / 2 KB CHR bank switching (`R0–R5`), H/V mirroring (`$A000`), and scanline IRQ state.
 - [x] **HAL Decompressor (`src/importer/hal_decompressor.gd`)**: Full HAL Laboratory LZ77/RLE decoder (opcodes `0..6` including bit-reversed `5` and backward `6`, extended 10-bit length mode, `0xFF` terminator, strict `MAX_ITERATIONS` & bounds checks).
 - [x] **CHR & Palette Extractor (`src/importer/chr_extractor.gd`)**: 2BPP planar tile decoding across 256 x 1KB CHR-ROM banks + 2C02 NTSC 64-color master palette mapping into `user://nes_data/` PNG atlases (`32` x `512x64` sheets).
-- [x] **ROM Importer (`src/importer/rom_importer.gd`)**: Scans `rom/` (and root fallback), validates ROM, extracts CHR sheets + metadata into `user://nes_data/`, and populates `ContentRegistry`.
-- [ ] **Level & Table Extraction (Phase 1.5)**: Map PRG-ROM pointers for 16x16 metatile dictionaries, World 1 room layouts, OAM sprite definitions, and room palette tables.
-- [x] **Verification (`tests/test_importer.gd`)**: Unit tests for HAL LZ77/RLE decompression vectors, 2BPP decoding, MMC3 bank mapping, `InputManager` 60 TPS/SOCD, `ContentRegistry` guard, and live ROM ingestion.
+- [x] **ROM Importer (`src/importer/rom_importer.gd`)**: Scans `rom/` (and root fallback), validates ROM, extracts CHR sheets, World 1 tables, and palettes into `user://nes_data/`, and populates `ContentRegistry`.
+- [x] **Level & Table Extraction (`src/importer/world_extractor.gd`)**: Dynamic PRG-ROM extraction via `MMC3Mapper` + `HALDecompressor` of 16x16 metatile dictionaries (tiles, 2-bit palettes, NES collision shapes), all 21 World 1 rooms (`R000` Hub, Stages 1-1..1-4 `R043..R060`, Whispy Woods Boss `R030`, Museum `R024`), BG/Sprite subpalettes, 1KB CHR bank bindings, doors, and entity spawns cached to `user://nes_data/world1_data.json`.
+- [x] **Verification (`tests/test_importer.gd`)**: 91 assertions passing (`0` failed) covering HAL LZ77/RLE opcodes, 2BPP decoding, MMC3 bank mapping, collision mapping, `InputManager` 60 TPS/SOCD, `ContentRegistry` guard, live ROM + World 1 extraction, and `user://nes_data/` disk reload.
 
 ### Phase 2: Core Physics, Metatiles & Copy Abilities (Pending)
 - [ ] **16x16 Metatile Physics (`src/game/level_map.gd`)**: Solid blocks, one-way platforms, 45° & 26.5° slopes, water zones, star blocks, spikes, and door transitions.

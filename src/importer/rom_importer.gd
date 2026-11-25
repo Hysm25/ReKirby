@@ -6,6 +6,7 @@ extends RefCounted
 const Constants = preload("res://src/core/constants.gd")
 const ROMValidator = preload("res://src/importer/rom_validator.gd")
 const CHRExtractor = preload("res://src/importer/chr_extractor.gd")
+const WorldExtractor = preload("res://src/importer/world_extractor.gd")
 const MAX_DIR_ENTRIES: int = 1024
 
 
@@ -93,10 +94,13 @@ static func import_rom_file(
 		EventBus.rom_extraction_failed.emit(res.error)
 		return res
 
-	# Hardware 2C02 PPU grayscale diagnostic ramp (zero copyrighted game data)
-	var palettes: Dictionary = {
-		"ppu_grayscale": [0x0F, 0x00, 0x10, 0x30],
-	}
+	var world1_res: WorldExtractor.WorldExtractionResult = WorldExtractor.extract_world1(report.prg_data)
+	if not world1_res.success:
+		res.error = "World 1 table extraction failed: %s" % world1_res.error
+		EventBus.rom_extraction_failed.emit(res.error)
+		return res
+
+	var palettes: Dictionary = world1_res.palettes
 	var palettes_path: String = user_data_dir.path_join("palettes.json")
 	var pal_file: FileAccess = FileAccess.open(palettes_path, FileAccess.WRITE)
 	if pal_file == null:
@@ -106,6 +110,23 @@ static func import_rom_file(
 	pal_file.store_string(JSON.stringify(palettes, "\t"))
 	pal_file.close()
 
+	var world1_payload: Dictionary = {
+		"format_version": Constants.EXTRACTION_FORMAT_VERSION,
+		"hub_room_id": Constants.WORLD1_HUB_ROOM_ID,
+		"property_table": world1_res.property_table,
+		"stage_start_rooms": world1_res.stage_start_rooms,
+		"tilesets": world1_res.tilesets,
+		"rooms": world1_res.rooms,
+	}
+	var world1_path: String = user_data_dir.path_join("world1_data.json")
+	var w1_file: FileAccess = FileAccess.open(world1_path, FileAccess.WRITE)
+	if w1_file == null:
+		res.error = "Failed to write %s." % world1_path
+		EventBus.rom_extraction_failed.emit(res.error)
+		return res
+	w1_file.store_string(JSON.stringify(world1_payload))
+	w1_file.close()
+
 	var manifest: Dictionary = {
 		"format_version": Constants.EXTRACTION_FORMAT_VERSION,
 		"source_filename": rom_path.get_file(),
@@ -113,6 +134,8 @@ static func import_rom_file(
 		"prg_size": report.prg_size,
 		"chr_size": report.chr_size,
 		"chr_banks_1k": chr_1k_images.size(),
+		"world1_room_count": world1_res.rooms.size(),
+		"world1_tileset_count": world1_res.tilesets.size(),
 		"full_crc32": report.full_crc32,
 		"prg_crc32": report.prg_crc32,
 		"chr_crc32": report.chr_crc32,
@@ -129,7 +152,14 @@ static func import_rom_file(
 	man_file.store_string(JSON.stringify(manifest, "\t"))
 	man_file.close()
 
-	ContentRegistry.populate_from_extraction(manifest, chr_1k_images, palettes, {}, {}, {})
+	ContentRegistry.populate_from_extraction(
+		manifest,
+		chr_1k_images,
+		palettes,
+		world1_res.tilesets,
+		world1_res.rooms,
+		{}
+	)
 	if not ContentRegistry.is_ready():
 		res.error = "ContentRegistry failed to populate after ROM extraction."
 		EventBus.rom_extraction_failed.emit(res.error)

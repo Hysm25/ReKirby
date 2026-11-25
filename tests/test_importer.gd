@@ -7,6 +7,7 @@ const ROMValidator = preload("res://src/importer/rom_validator.gd")
 const MMC3Mapper = preload("res://src/importer/mmc3_mapper.gd")
 const HALDecompressor = preload("res://src/importer/hal_decompressor.gd")
 const CHRExtractor = preload("res://src/importer/chr_extractor.gd")
+const WorldExtractor = preload("res://src/importer/world_extractor.gd")
 const ROMImporter = preload("res://src/importer/rom_importer.gd")
 const MAX_CLEANUP_ENTRIES: int = 2048
 
@@ -16,6 +17,7 @@ var _failed: int = 0
 
 func run_tests() -> Dictionary:
 	_test_constants_and_palette()
+	_test_collision_mapping()
 	_test_input_manager_60tps()
 	_test_rom_validator_synthetic()
 	_test_mmc3_mapper()
@@ -57,6 +59,20 @@ func _test_constants_and_palette() -> void:
 	_assert_true(white.is_equal_approx(Color(1.0, 1.0, 1.0, 1.0)), "NES color 0x30 is white")
 	var black: Color = Constants.get_nes_color(0x0F)
 	_assert_true(black.is_equal_approx(Color(0.0, 0.0, 0.0, 1.0)), "NES color 0x0F is black")
+
+
+func _test_collision_mapping() -> void:
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x00), Constants.TileCollision.AIR, "NES prop 0x00 maps to AIR")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x20), Constants.TileCollision.AIR, "NES prop 0x20 maps to AIR")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x02), Constants.TileCollision.SOLID, "NES prop 0x02 maps to SOLID")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x22), Constants.TileCollision.BREAKABLE_STAR, "NES prop 0x22 maps to BREAKABLE_STAR")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x01), Constants.TileCollision.ONE_WAY, "NES prop 0x01 maps to ONE_WAY")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x05), Constants.TileCollision.SLOPE_45_UP, "NES prop 0x05 maps to SLOPE_45_UP")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x06), Constants.TileCollision.SLOPE_45_DOWN, "NES prop 0x06 maps to SLOPE_45_DOWN")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x03), Constants.TileCollision.SLOPE_26_UP_L, "NES prop 0x03 maps to SLOPE_26_UP_L")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x04), Constants.TileCollision.SLOPE_26_DOWN_L, "NES prop 0x04 maps to SLOPE_26_DOWN_L")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0xA0), Constants.TileCollision.WATER, "NES prop 0xA0 maps to WATER")
+	_assert_eq_int(Constants.map_nes_collision_to_enum(0x0F), Constants.TileCollision.SPIKE_HAZARD, "NES prop 0x0F maps to SPIKE_HAZARD")
 
 
 func _test_input_manager_60tps() -> void:
@@ -261,17 +277,67 @@ func _test_live_rom_ingestion_if_present() -> void:
 	var res: ROMImporter.ImportResult = ROMImporter.import_rom_file(candidates[0], test_user_dir, true)
 	_assert_true(res.success, "Live ROM import succeeds cleanly (%s)" % res.error)
 	_assert_eq_int(int(res.manifest.get("chr_banks_1k", 0)), 256, "Live ROM extracted 256 x 1KB CHR banks")
+	_assert_eq_int(int(res.manifest.get("world1_room_count", 0)), 21, "Live ROM extracted 21 World 1 rooms")
+	_assert_eq_int(int(res.manifest.get("world1_tileset_count", 0)), 9, "Live ROM extracted 9 World 1 tilesets")
 	_assert_eq_int(int(res.manifest.get("prg_crc32", 0)), Constants.ROM_PRG_CRC32, "Live ROM PRG CRC32 verified")
 	_assert_eq_int(int(res.manifest.get("chr_crc32", 0)), Constants.ROM_CHR_CRC32, "Live ROM CHR CRC32 verified")
 
-	# Verify reloading cached PNG sheets from disk
+	# Verify reloading cached PNG sheets, palettes, and World 1 room/metatile tables from disk
 	var reloaded: bool = ContentRegistry.load_from_user_data(
 		test_user_dir.path_join("manifest.json"),
 		test_user_dir.path_join("chr_banks"),
-		test_user_dir.path_join("palettes.json")
+		test_user_dir.path_join("palettes.json"),
+		test_user_dir.path_join("world1_data.json")
 	)
-	_assert_true(reloaded and ContentRegistry.is_ready(), "ContentRegistry reloads cached PNG sheets from disk")
+	_assert_true(reloaded and ContentRegistry.is_ready(), "ContentRegistry reloads cached CHR, palettes, and World 1 data from disk")
 	_assert_eq_int(ContentRegistry.get_chr_1k_bank_count(), 256, "Reloaded ContentRegistry exposes 256 x 1KB CHR banks")
+	_assert_eq_int(ContentRegistry.get_room_ids().size(), 21, "Reloaded ContentRegistry exposes 21 World 1 rooms")
+	_assert_eq_int(ContentRegistry.get_tileset_ids().size(), 9, "Reloaded ContentRegistry exposes 9 World 1 tilesets")
+
+	# Verify World 1 Hub (R000), Stage 1-1 Room 1 (R043), and Whispy Woods Boss (R030)
+	_assert_true(ContentRegistry.has_room(0), "ContentRegistry contains World 1 Hub (Room 0)")
+	_assert_true(ContentRegistry.has_room(43), "ContentRegistry contains Stage 1-1 Room 1 (Room 43)")
+	_assert_true(ContentRegistry.has_room(30), "ContentRegistry contains Whispy Woods Boss (Room 30)")
+
+	var r43: Dictionary = ContentRegistry.get_room_data(43)
+	_assert_eq_int(int(r43.get("width_screens", 0)), 4, "Room 43 is 4 screens wide")
+	_assert_eq_int(int(r43.get("height_screens", 0)), 1, "Room 43 is 1 screen tall")
+	_assert_eq_int(int(r43.get("tileset_id", -1)), 7, "Room 43 uses tileset 7")
+	var r43_chr: Array = r43.get("bg_chr_banks", []) as Array
+	_assert_eq_int(r43_chr.size(), 4, "Room 43 resolves 4 x 1KB BG CHR banks")
+	if r43_chr.size() == 4:
+		_assert_eq_int(int(r43_chr[0]), 0, "Room 43 CHR R2 = 0")
+		_assert_eq_int(int(r43_chr[1]), 14, "Room 43 CHR R3 = 14")
+		_assert_eq_int(int(r43_chr[2]), 15, "Room 43 CHR R4 = 15")
+		_assert_eq_int(int(r43_chr[3]), 28, "Room 43 CHR R5 = 28")
+
+	var r43_mts: Array = r43.get("metatiles", []) as Array
+	_assert_eq_int(r43_mts.size(), 4 * 16 * 12, "Room 43 unpacked 768 metatiles (64x12)")
+	var r43_doors: Array = r43.get("doors", []) as Array
+	_assert_eq_int(r43_doors.size(), 1, "Room 43 has 1 exit door")
+	if not r43_doors.is_empty():
+		var exit_door: Dictionary = r43_doors[0] as Dictionary
+		_assert_eq_int(int(exit_door.get("dest_room_id", -1)), 44, "Room 43 door leads to Room 44")
+	var r43_ents: Array = r43.get("entities", []) as Array
+	_assert_eq_int(r43_ents.size(), 10, "Room 43 contains 10 entity spawns")
+
+	# Verify tileset 7 metatile definitions (0x58 = grass SOLID, 0x00 = sky AIR)
+	_assert_true(ContentRegistry.has_tileset(7), "ContentRegistry contains tileset 7")
+	var mt_grass: Dictionary = ContentRegistry.get_metatile(7, 0x58)
+	_assert_eq_int(int(mt_grass.get("tl", -1)), 0x4B, "Tileset 7 grass MT 0x58 TL=0x4B")
+	_assert_eq_int(int(mt_grass.get("collision", -1)), Constants.TileCollision.SOLID, "Tileset 7 grass MT 0x58 is SOLID")
+	var mt_sky: Dictionary = ContentRegistry.get_metatile(7, 0x00)
+	_assert_eq_int(int(mt_sky.get("collision", -1)), Constants.TileCollision.AIR, "Tileset 7 sky MT 0x00 is AIR")
+
+	# Verify extracted ROM palettes (R43 BG0 & Kirby default SP0)
+	var bg0_pal: PackedInt32Array = ContentRegistry.get_palette_indices("room_43_bg_0")
+	_assert_eq_int(bg0_pal.size(), 4, "Room 43 BG0 palette has 4 NES color entries")
+	if bg0_pal.size() == 4:
+		_assert_eq_int(bg0_pal[0], 0x21, "Room 43 BG0 universal sky color is 0x21")
+	var kirby_pal: PackedInt32Array = ContentRegistry.get_palette_indices("kirby_default")
+	_assert_eq_int(kirby_pal.size(), 4, "Kirby default palette extracted with 4 entries")
+	if kirby_pal.size() == 4:
+		_assert_eq_int(kirby_pal[3], 0x25, "Kirby default palette main pink index is 0x25")
 
 	# Clean up temporary test extraction directory
 	_cleanup_dir_recursive(test_user_dir)

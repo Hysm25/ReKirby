@@ -9,6 +9,7 @@ var _stage_root: Control = null
 var _missing_rom_panel: Control = null
 var _boot_verified_panel: Control = null
 var _status_label: Label = null
+var _verified_header_label: Label = null
 var _chr_preview_row: HBoxContainer = null
 
 
@@ -126,14 +127,14 @@ func _build_boot_verified_panel() -> void:
 	playfield_bg.size = Vector2(Constants.PLAYFIELD_WIDTH, Constants.PLAYFIELD_HEIGHT)
 	_boot_verified_panel.add_child(playfield_bg)
 
-	var header_lbl: Label = Label.new()
-	header_lbl.position = Vector2(8, 8)
-	header_lbl.size = Vector2(Constants.PLAYFIELD_WIDTH - 16, 48)
-	header_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	header_lbl.add_theme_font_size_override("font_size", 8)
-	header_lbl.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95, 1.0))
-	header_lbl.text = "REKIRBY PHASE 1: ROM INGESTION VERIFIED\n256x192 PLAYFIELD + 256x1KB CHR BANKS READY"
-	_boot_verified_panel.add_child(header_lbl)
+	_verified_header_label = Label.new()
+	_verified_header_label.position = Vector2(8, 8)
+	_verified_header_label.size = Vector2(Constants.PLAYFIELD_WIDTH - 16, 48)
+	_verified_header_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_verified_header_label.add_theme_font_size_override("font_size", 8)
+	_verified_header_label.add_theme_color_override("font_color", Color(0.95, 0.95, 0.95, 1.0))
+	_verified_header_label.text = "REKIRBY PHASE 1.5: ROM INGESTION VERIFIED\n256x192 PLAYFIELD + 256x1KB CHR BANKS READY"
+	_boot_verified_panel.add_child(_verified_header_label)
 
 	_chr_preview_row = HBoxContainer.new()
 	_chr_preview_row.position = Vector2(16, 64)
@@ -186,6 +187,13 @@ func _enter_ready_state() -> void:
 	set_physics_process(true)
 	_missing_rom_panel.visible = false
 	_boot_verified_panel.visible = true
+	if _verified_header_label != null and ContentRegistry.is_ready():
+		var r_count: int = ContentRegistry.get_room_ids().size()
+		var t_count: int = ContentRegistry.get_tileset_ids().size()
+		_verified_header_label.text = (
+			"REKIRBY PHASE 1.5: ROM INGESTION VERIFIED\n"
+			+ "%d W1 ROOMS | %d TILESETS | 256 CHR BANKS" % [r_count, t_count]
+		)
 	_populate_chr_preview()
 	EventBus.game_state_changed.emit(_current_state, prev)
 

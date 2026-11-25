@@ -1,0 +1,512 @@
+class_name WorldExtractor
+extends RefCounted
+## Extracts World 1 (Vegetable Valley) 16x16 metatile tilesets, room grids,
+## palettes, CHR bank bindings, doors, and entity spawns from PRG-ROM via MMC3Mapper + HALDecompressor.
+
+const Constants = preload("res://src/core/constants.gd")
+const MMC3Mapper = preload("res://src/importer/mmc3_mapper.gd")
+const HALDecompressor = preload("res://src/importer/hal_decompressor.gd")
+
+const MAX_WORLD1_ROOMS: int = 64
+const MAX_DOORS_PER_ROOM: int = 32
+const MAX_ENTITIES_PER_ROOM: int = 128
+
+# Structural offsets within PRG Bank 18 (0x12, mapped to $8000-$9FFF)
+const B18_METATILE_PROP_TABLE: int = 0x83D3
+const B18_METATILE_PROP_COUNT: int = 144
+
+const B18_ROOM_BANK_LO: int = 0x84D1
+const B18_ROOM_BANK_HI: int = 0x85D1
+const B18_ROOM_TILESET_LO: int = 0x8618
+const B18_ROOM_TILESET_HI: int = 0x8718
+const B18_ROOM_ADDR_HI_LO: int = 0x875F
+const B18_ROOM_ADDR_HI_HI: int = 0x885F
+const B18_ROOM_ADDR_LO_LO: int = 0x88A6
+const B18_ROOM_ADDR_LO_HI: int = 0x89A6
+
+const B18_TILESET_BANK: int = 0x89ED
+const B18_TILESET_ADDR_HI: int = 0x8A1E
+const B18_TILESET_ADDR_LO: int = 0x8A4F
+const B18_TILESET_CHR_FLAG: int = 0x9C5F
+
+const B18_ENTITY_BANK_LO: int = 0x8A80
+const B18_ENTITY_BANK_HI: int = 0x8B80
+const B18_ENTITY_ADDR_HI_LO: int = 0x8BC7
+const B18_ENTITY_ADDR_HI_HI: int = 0x8CC7
+const B18_ENTITY_ADDR_LO_LO: int = 0x8D0E
+const B18_ENTITY_ADDR_LO_HI: int = 0x8E0E
+
+const B18_PALETTE_SET_TABLE: int = 0x8E55
+const B18_DOOR_PTR_LO: int = 0x8F82
+const B18_DOOR_PTR_HI: int = 0x90CB
+
+# Structural offsets within PRG Bank 5 ($8000-$9FFF) and Bank 19 ($A000-$BFFF)
+const B5_CHR_R3_TABLE: int = 0x9418
+const B5_CHR_R4_TABLE: int = 0x9518
+const B5_CHR_R5_TABLE: int = 0x9618
+
+const B19_ACTOR_ID_TABLE: int = 0xA9D2
+const B19_ACTOR_SUBTYPE_TABLE: int = 0xAAD2
+const B19_BG3_OVERRIDE_ROOMS: int = 0xA766
+const B56_KIRBY_PALETTE_ADDR: int = 0xB1D2 # Kirby default SP0 palette [0F, 30, 35, 25]
+
+
+class WorldExtractionResult extends RefCounted:
+	var success: bool = false
+	var error: String = ""
+	var property_table: Array[int] = []
+	var tilesets: Dictionary = {}
+	var rooms: Dictionary = {}
+	var palettes: Dictionary = {}
+	var stage_start_rooms: Dictionary = {}
+
+
+static func _map_r6(mapper: MMC3Mapper, bank_8k: int) -> void:
+	mapper.write_register(0x8000, 0x86) # PRG mode 0, select R6 ($8000-$9FFF)
+	mapper.write_register(0x8001, bank_8k & 0x3F)
+
+
+static func _map_r7(mapper: MMC3Mapper, bank_8k: int) -> void:
+	mapper.write_register(0x8000, 0x87) # PRG mode 0, select R7 ($A000-$BFFF)
+	mapper.write_register(0x8001, bank_8k & 0x3F)
+
+
+static func _decompress_at_a000(
+	mapper: MMC3Mapper,
+	prg_bank: int,
+	cpu_addr: int,
+	max_output_size: int
+) -> HALDecompressor.DecompressResult:
+	if cpu_addr < 0xA000 or cpu_addr > 0xBFFF:
+		var bad: HALDecompressor.DecompressResult = HALDecompressor.DecompressResult.new()
+		bad.error = "CPU address 0x%04X outside $A000-$BFFF window." % cpu_addr
+		return bad
+	_map_r7(mapper, prg_bank)
+	var remaining: int = 0xC000 - cpu_addr
+	var slice: PackedByteArray = mapper.read_prg_slice(cpu_addr, remaining)
+	return HALDecompressor.decompress(slice, 0, max_output_size)
+
+
+static func extract_metatile_property_table(mapper: MMC3Mapper) -> Array[int]:
+	_map_r6(mapper, Constants.PRG_BANK_ROOM_TABLES)
+	var raw: PackedByteArray = mapper.read_prg_slice(B18_METATILE_PROP_TABLE, B18_METATILE_PROP_COUNT)
+	var table: Array[int] = []
+	table.resize(raw.size())
+	for i: int in range(raw.size()):
+		table[i] = raw[i]
+	return table
+
+
+static func extract_tileset(
+	mapper: MMC3Mapper,
+	tileset_id: int,
+	property_table: Array[int]
+) -> Dictionary:
+	if tileset_id < 0 or tileset_id >= Constants.TOTAL_ROM_TILESETS:
+		return {}
+
+	_map_r6(mapper, Constants.PRG_BANK_ROOM_TABLES)
+	var ts_bank: int = mapper.read_prg_byte(B18_TILESET_BANK + tileset_id)
+	var ts_hi: int = mapper.read_prg_byte(B18_TILESET_ADDR_HI + tileset_id)
+	var ts_lo: int = mapper.read_prg_byte(B18_TILESET_ADDR_LO + tileset_id)
+	var ts_chr_flag: int = mapper.read_prg_byte(B18_TILESET_CHR_FLAG + tileset_id)
+	var cpu_addr: int = ts_lo | (ts_hi << 8)
+	if cpu_addr < 0xA000 or cpu_addr > 0xBFFF:
+		return {}
+
+	var decomp: HALDecompressor.DecompressResult = _decompress_at_a000(
+		mapper,
+		ts_bank,
+		cpu_addr,
+		Constants.TILESET_STREAM_SIZE
+	)
+	if not decomp.success or decomp.data.size() != Constants.TILESET_STREAM_SIZE:
+		return {}
+
+	var stream: PackedByteArray = decomp.data
+	var metatiles: Array[Dictionary] = []
+	metatiles.resize(Constants.METATILES_PER_TILESET)
+
+	for mt_id: int in range(Constants.METATILES_PER_TILESET):
+		var tl: int = stream[mt_id * 4 + 0]
+		var tr: int = stream[mt_id * 4 + 1]
+		var bl: int = stream[mt_id * 4 + 2]
+		var br: int = stream[mt_id * 4 + 3]
+
+		var pal_byte: int = stream[1024 + (mt_id >> 2)]
+		var shift: int = (3 - (mt_id & 3)) * 2
+		var palette_idx: int = (pal_byte >> shift) & 0x03
+
+		var raw_prop: int = stream[1088 + mt_id]
+		var nes_collision: int = 0
+		if raw_prop < property_table.size():
+			nes_collision = property_table[raw_prop]
+		var collision_type: int = Constants.map_nes_collision_to_enum(nes_collision)
+
+		metatiles[mt_id] = {
+			"tl": tl,
+			"tr": tr,
+			"bl": bl,
+			"br": br,
+			"palette": palette_idx,
+			"raw_prop": raw_prop,
+			"nes_collision": nes_collision,
+			"collision": collision_type,
+		}
+
+	return {
+		"tileset_id": tileset_id,
+		"prg_bank": ts_bank,
+		"cpu_addr": cpu_addr,
+		"chr_flag": ts_chr_flag,
+		"metatiles": metatiles,
+	}
+
+
+static func _extract_room_palettes(
+	mapper: MMC3Mapper,
+	room_id: int,
+	palette_slot: int,
+	palette_set_id: int,
+	kirby_palette: Array[int]
+) -> Dictionary:
+	_map_r6(mapper, Constants.PRG_BANK_PALETTE_TABLES)
+	var universal_bg: int = mapper.read_prg_byte(0x8000 + palette_slot) & 0x3F
+	var bg0: Array[int] = [
+		universal_bg,
+		mapper.read_prg_byte(0x8100 + palette_slot) & 0x3F,
+		mapper.read_prg_byte(0x8200 + palette_slot) & 0x3F,
+		mapper.read_prg_byte(0x8300 + palette_slot) & 0x3F,
+	]
+	var bg1: Array[int] = [
+		universal_bg,
+		mapper.read_prg_byte(0x8400 + palette_slot) & 0x3F,
+		mapper.read_prg_byte(0x8500 + palette_slot) & 0x3F,
+		mapper.read_prg_byte(0x8600 + palette_slot) & 0x3F,
+	]
+	var bg2: Array[int] = [
+		universal_bg,
+		mapper.read_prg_byte(0x8700 + palette_slot) & 0x3F,
+		mapper.read_prg_byte(0x8800 + palette_slot) & 0x3F,
+		mapper.read_prg_byte(0x8900 + palette_slot) & 0x3F,
+	]
+	var bg3: Array[int] = [universal_bg, 0x37, 0x27, 0x07]
+
+	# Check room-specific BG3 overrides in Bank 19 ($A713..$A777)
+	_map_r7(mapper, Constants.PRG_BANK_LOADER_TABLES)
+	if room_id == 0x11:
+		bg3 = [universal_bg, 0x0F, 0x00, 0x20]
+	else:
+		for ov_idx: int in range(9):
+			var lo: int = mapper.read_prg_byte(B19_BG3_OVERRIDE_ROOMS + ov_idx)
+			var hi: int = mapper.read_prg_byte(B19_BG3_OVERRIDE_ROOMS + 9 + ov_idx)
+			if ((hi << 8) | lo) == room_id:
+				bg3 = [universal_bg, 0x20, 0x10, 0x00]
+				break
+
+	# Sprite palettes: SP0 = Kirby, SP1 = common stars/items ($30, $37, $17), SP2/SP3 = Bank 18 palette set
+	_map_r6(mapper, Constants.PRG_BANK_ROOM_TABLES)
+	var pal_set_addr: int = B18_PALETTE_SET_TABLE + palette_set_id * 6
+	var sp0: Array[int] = [
+		universal_bg,
+		kirby_palette[1],
+		kirby_palette[2],
+		kirby_palette[3],
+	]
+	var sp1: Array[int] = [universal_bg, 0x30, 0x37, 0x17]
+	var sp2: Array[int] = [
+		universal_bg,
+		mapper.read_prg_byte(pal_set_addr + 0) & 0x3F,
+		mapper.read_prg_byte(pal_set_addr + 1) & 0x3F,
+		mapper.read_prg_byte(pal_set_addr + 2) & 0x3F,
+	]
+	var sp3: Array[int] = [
+		universal_bg,
+		mapper.read_prg_byte(pal_set_addr + 3) & 0x3F,
+		mapper.read_prg_byte(pal_set_addr + 4) & 0x3F,
+		mapper.read_prg_byte(pal_set_addr + 5) & 0x3F,
+	]
+
+	return {
+		"universal_bg": universal_bg,
+		"bg_0": bg0,
+		"bg_1": bg1,
+		"bg_2": bg2,
+		"bg_3": bg3,
+		"sp_0": sp0,
+		"sp_1": sp1,
+		"sp_2": sp2,
+		"sp_3": sp3,
+	}
+
+
+static func _extract_room_doors(mapper: MMC3Mapper, room_id: int) -> Array[Dictionary]:
+	_map_r6(mapper, Constants.PRG_BANK_ROOM_TABLES)
+	var start_addr: int = mapper.read_prg_byte(B18_DOOR_PTR_LO + room_id) | (mapper.read_prg_byte(B18_DOOR_PTR_HI + room_id) << 8)
+	var end_addr: int = mapper.read_prg_byte(B18_DOOR_PTR_LO + room_id + 1) | (mapper.read_prg_byte(B18_DOOR_PTR_HI + room_id + 1) << 8)
+	var doors: Array[Dictionary] = []
+	if end_addr <= start_addr or start_addr < 0x8000 or end_addr > 0xA000:
+		return doors
+
+	var byte_len: int = mini(end_addr - start_addr, MAX_DOORS_PER_ROOM * 5)
+	var raw: PackedByteArray = mapper.read_prg_slice(start_addr, byte_len)
+	var count: int = raw.size() / 5
+	for i: int in range(count):
+		var off: int = i * 5
+		var b0: int = raw[off]
+		var b1: int = raw[off + 1]
+		var b2: int = raw[off + 2]
+		var b3: int = raw[off + 3]
+		var b4: int = raw[off + 4]
+		var special: int = ((b3 & 0xF0) | (b0 >> 4)) & 0x7F
+		var dest_room_id: int = (((b3 >> 7) & 0x01) << 8) | b2
+		doors.append({
+			"special": special,
+			"src_screen": b0 & 0x0F,
+			"src_x": (b1 >> 4) & 0x0F,
+			"src_y": b1 & 0x0F,
+			"dest_room_id": dest_room_id,
+			"dst_screen": b3 & 0x0F,
+			"dst_x": (b4 >> 4) & 0x0F,
+			"dst_y": b4 & 0x0F,
+		})
+	return doors
+
+
+static func _extract_room_entities(mapper: MMC3Mapper, room_id: int) -> Array[Dictionary]:
+	_map_r6(mapper, Constants.PRG_BANK_ROOM_TABLES)
+	var is_hi_page: bool = room_id >= 256
+	var idx: int = room_id - 256 if is_hi_page else room_id
+	var ent_bank: int = mapper.read_prg_byte((B18_ENTITY_BANK_HI if is_hi_page else B18_ENTITY_BANK_LO) + idx)
+	var ent_hi: int = mapper.read_prg_byte((B18_ENTITY_ADDR_HI_HI if is_hi_page else B18_ENTITY_ADDR_HI_LO) + idx)
+	var ent_lo: int = mapper.read_prg_byte((B18_ENTITY_ADDR_LO_HI if is_hi_page else B18_ENTITY_ADDR_LO_LO) + idx)
+	var ent_addr: int = ent_lo | (ent_hi << 8)
+	var entities: Array[Dictionary] = []
+	if ent_addr < 0xA000 or ent_addr > 0xBFFF:
+		return entities
+
+	_map_r7(mapper, ent_bank)
+	var n_slices: int = mapper.read_prg_byte(ent_addr)
+	if n_slices == 0 or n_slices > 64:
+		return entities
+
+	var slice_ends: PackedByteArray = mapper.read_prg_slice(ent_addr + 2, n_slices)
+	var total_ents: int = slice_ends[n_slices - 1]
+	if total_ents == 0:
+		return entities
+	total_ents = mini(total_ents, MAX_ENTITIES_PER_ROOM)
+
+	var coords_addr: int = ent_addr + 2 + n_slices
+	var types_addr: int = coords_addr + slice_ends[n_slices - 1]
+	var coords: PackedByteArray = mapper.read_prg_slice(coords_addr, total_ents)
+	var raw_types: PackedByteArray = mapper.read_prg_slice(types_addr, total_ents)
+
+	# Lookup actor_id & subtype from Bank 19 tables ($A9D2 / $AAD2)
+	_map_r7(mapper, Constants.PRG_BANK_LOADER_TABLES)
+	var actor_ids: PackedInt32Array = PackedInt32Array()
+	var subtypes: PackedInt32Array = PackedInt32Array()
+	actor_ids.resize(total_ents)
+	subtypes.resize(total_ents)
+	for i: int in range(total_ents):
+		var raw_t: int = raw_types[i]
+		actor_ids[i] = mapper.read_prg_byte(B19_ACTOR_ID_TABLE + raw_t)
+		subtypes[i] = mapper.read_prg_byte(B19_ACTOR_SUBTYPE_TABLE + raw_t)
+
+	var prev_end: int = 0
+	for s_idx: int in range(n_slices):
+		var cur_end: int = mini(slice_ends[s_idx], total_ents)
+		for i: int in range(prev_end, cur_end):
+			var packed_xy: int = coords[i]
+			entities.append({
+				"screen": s_idx,
+				"tile_x": (packed_xy >> 4) & 0x0F,
+				"tile_y": packed_xy & 0x0F,
+				"raw_type": raw_types[i],
+				"actor_id": actor_ids[i],
+				"subtype": subtypes[i],
+			})
+		prev_end = cur_end
+
+	return entities
+
+
+static func extract_room(
+	mapper: MMC3Mapper,
+	room_id: int,
+	kirby_palette: Array[int]
+) -> Dictionary:
+	if room_id < 0 or room_id >= Constants.TOTAL_ROM_ROOMS:
+		return {}
+
+	_map_r6(mapper, Constants.PRG_BANK_ROOM_TABLES)
+	var is_hi_page: bool = room_id >= 256
+	var idx: int = room_id - 256 if is_hi_page else room_id
+	var bank_raw: int = mapper.read_prg_byte((B18_ROOM_BANK_HI if is_hi_page else B18_ROOM_BANK_LO) + idx)
+	var tileset_id: int = mapper.read_prg_byte((B18_ROOM_TILESET_HI if is_hi_page else B18_ROOM_TILESET_LO) + idx)
+	var addr_hi: int = mapper.read_prg_byte((B18_ROOM_ADDR_HI_HI if is_hi_page else B18_ROOM_ADDR_HI_LO) + idx)
+	var addr_lo: int = mapper.read_prg_byte((B18_ROOM_ADDR_LO_HI if is_hi_page else B18_ROOM_ADDR_LO_LO) + idx)
+	var room_bank: int = bank_raw & 0x7F
+	var room_addr: int = addr_lo | (addr_hi << 8)
+
+	var decomp: HALDecompressor.DecompressResult = _decompress_at_a000(mapper, room_bank, room_addr, 16384)
+	if not decomp.success or decomp.data.size() < Constants.ROOM_HEADER_SIZE:
+		return {}
+
+	var raw: PackedByteArray = decomp.data
+	var w_screens: int = raw[0]
+	var h_screens: int = raw[1]
+	var chr_slot: int = raw[2]
+	var palette_slot: int = raw[3]
+	var sprite_chr_bank: int = raw[4]
+	var palette_set_id: int = raw[5]
+	var expected_size: int = Constants.ROOM_HEADER_SIZE + w_screens * h_screens * Constants.ROOM_SCREEN_METATILES
+	if w_screens <= 0 or h_screens <= 0 or raw.size() < expected_size:
+		return {}
+
+	var screen_count: int = w_screens * h_screens
+	var screen_grid: Array[int] = []
+	screen_grid.resize(screen_count)
+	for i: int in range(screen_count):
+		screen_grid[i] = raw[8 + i]
+
+	# Unpack flat 2D metatile map in row-major order: width = w_screens * 16, height = h_screens * 12
+	var map_width: int = w_screens * Constants.ROOM_SCREEN_COLS
+	var map_height: int = h_screens * Constants.ROOM_SCREEN_ROWS
+	var metatiles_flat: Array[int] = []
+	metatiles_flat.resize(map_width * map_height)
+	for sy: int in range(h_screens):
+		for sx: int in range(w_screens):
+			var screen_idx: int = screen_grid[sy * w_screens + sx]
+			if screen_idx >= screen_count:
+				screen_idx = sy * w_screens + sx
+			var screen_base: int = Constants.ROOM_HEADER_SIZE + screen_idx * Constants.ROOM_SCREEN_METATILES
+			for ly: int in range(Constants.ROOM_SCREEN_ROWS):
+				var global_y: int = sy * Constants.ROOM_SCREEN_ROWS + ly
+				var dst_row_base: int = global_y * map_width + sx * Constants.ROOM_SCREEN_COLS
+				var src_row_base: int = screen_base + ly * Constants.ROOM_SCREEN_COLS
+				for lx: int in range(Constants.ROOM_SCREEN_COLS):
+					metatiles_flat[dst_row_base + lx] = raw[src_row_base + lx]
+
+	# Resolve 4 x 1KB BG CHR banks (R2, R3, R4, R5) via Bank 5 tables
+	_map_r6(mapper, Constants.PRG_BANK_CHR_TABLES)
+	var chr_r2: int = 0
+	var chr_r3: int = mapper.read_prg_byte(B5_CHR_R3_TABLE + chr_slot)
+	var chr_r4: int = mapper.read_prg_byte(B5_CHR_R4_TABLE + chr_slot)
+	var chr_r5: int = mapper.read_prg_byte(B5_CHR_R5_TABLE + chr_slot)
+	var bg_chr_banks: Array[int] = [chr_r2, chr_r3, chr_r4, chr_r5]
+
+	var room_palettes: Dictionary = _extract_room_palettes(
+		mapper,
+		room_id,
+		palette_slot,
+		palette_set_id,
+		kirby_palette
+	)
+	var doors: Array[Dictionary] = _extract_room_doors(mapper, room_id)
+	var entities: Array[Dictionary] = _extract_room_entities(mapper, room_id)
+
+	return {
+		"room_id": room_id,
+		"width_screens": w_screens,
+		"height_screens": h_screens,
+		"width_metatiles": map_width,
+		"height_metatiles": map_height,
+		"tileset_id": tileset_id,
+		"chr_slot": chr_slot,
+		"palette_slot": palette_slot,
+		"palette_set_id": palette_set_id,
+		"sprite_chr_bank": sprite_chr_bank,
+		"bg_chr_banks": bg_chr_banks,
+		"is_checkpoint": (bank_raw & 0x80) != 0,
+		"screen_grid": screen_grid,
+		"metatiles": metatiles_flat,
+		"palettes": room_palettes,
+		"doors": doors,
+		"entities": entities,
+	}
+
+
+static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
+	var result: WorldExtractionResult = WorldExtractionResult.new()
+	if prg_data.size() != Constants.EXPECTED_PRG_SIZE:
+		result.error = "Invalid PRG-ROM size %d for WorldExtractor." % prg_data.size()
+		return result
+
+	var mapper: MMC3Mapper = MMC3Mapper.new(prg_data, PackedByteArray())
+
+	# Extract Kirby's default SP0 palette from Bank 56 ($B1D2: 0F, 30, 35, 25)
+	_map_r7(mapper, Constants.PRG_BANK_HUD_PALETTES)
+	var kirby_pal_raw: PackedByteArray = mapper.read_prg_slice(B56_KIRBY_PALETTE_ADDR, 4)
+	var kirby_palette: Array[int] = [
+		kirby_pal_raw[0] & 0x3F,
+		kirby_pal_raw[1] & 0x3F,
+		kirby_pal_raw[2] & 0x3F,
+		kirby_pal_raw[3] & 0x3F,
+	]
+
+	var prop_table: Array[int] = extract_metatile_property_table(mapper)
+	if prop_table.size() != B18_METATILE_PROP_COUNT:
+		result.error = "Failed to read Bank 18 metatile property table."
+		return result
+	result.property_table = prop_table
+
+	# Hardware 2C02 diagnostic ramp + Kirby SP0 palette
+	result.palettes["ppu_grayscale"] = [0x0F, 0x00, 0x10, 0x30]
+	result.palettes["kirby_default"] = kirby_palette
+
+	# Traverse World 1 dynamically starting at Room 0 (Vegetable Valley Hub)
+	var queue: Array[int] = [Constants.WORLD1_HUB_ROOM_ID]
+	var visited: Dictionary = {}
+	var needed_tilesets: Dictionary = {}
+	var iterations: int = 0
+
+	while not queue.is_empty() and iterations < MAX_WORLD1_ROOMS:
+		iterations += 1
+		var rid: int = int(queue.pop_front())
+		if visited.has(rid):
+			continue
+		visited[rid] = true
+
+		var room_data: Dictionary = extract_room(mapper, rid, kirby_palette)
+		if room_data.is_empty():
+			result.error = "Failed to extract World 1 room %d." % rid
+			return result
+
+		result.rooms[rid] = room_data
+		var ts_id: int = int(room_data["tileset_id"])
+		needed_tilesets[ts_id] = true
+
+		# Register room palettes in global palette repository
+		var r_pals: Dictionary = room_data["palettes"] as Dictionary
+		for p_idx: int in range(4):
+			result.palettes["room_%d_bg_%d" % [rid, p_idx]] = r_pals["bg_%d" % p_idx]
+			result.palettes["room_%d_sp_%d" % [rid, p_idx]] = r_pals["sp_%d" % p_idx]
+
+		# Enqueue World 1 destination rooms (exclude World 2 Hub and mini-game/subgame rooms)
+		var doors: Array = room_data["doors"] as Array
+		for door_var: Variant in doors:
+			var door: Dictionary = door_var as Dictionary
+			var sp: int = int(door["special"])
+			var dst: int = int(door["dest_room_id"])
+			if rid == Constants.WORLD1_HUB_ROOM_ID and sp >= 1 and sp <= 4:
+				result.stage_start_rooms[sp] = dst
+			elif rid == Constants.WORLD1_HUB_ROOM_ID and sp == 0x1D:
+				result.stage_start_rooms["boss"] = dst
+			elif rid == Constants.WORLD1_HUB_ROOM_ID and sp == 0x18:
+				result.stage_start_rooms["museum"] = dst
+
+			if dst == Constants.WORLD2_HUB_ROOM_ID or sp == 0x1F or sp == 0x1C:
+				continue
+			if not visited.has(dst) and not queue.has(dst):
+				queue.append(dst)
+
+	for ts_key: Variant in needed_tilesets.keys():
+		var ts_id: int = int(ts_key)
+		var ts_data: Dictionary = extract_tileset(mapper, ts_id, prop_table)
+		if ts_data.is_empty():
+			result.error = "Failed to extract World 1 tileset %d." % ts_id
+			return result
+		result.tilesets[ts_id] = ts_data
+
+	result.success = not result.rooms.is_empty() and not result.tilesets.is_empty()
+	return result

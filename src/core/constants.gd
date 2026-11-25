@@ -56,7 +56,25 @@ const USER_DATA_DIR: String = "user://nes_data"
 const CHR_BANKS_DIR: String = "user://nes_data/chr_banks"
 const MANIFEST_PATH: String = "user://nes_data/manifest.json"
 const PALETTES_PATH: String = "user://nes_data/palettes.json"
-const EXTRACTION_FORMAT_VERSION: int = 1
+const WORLD1_DATA_PATH: String = "user://nes_data/world1_data.json"
+const EXTRACTION_FORMAT_VERSION: int = 2
+
+# PRG-ROM MMC3 structural table locations (Kirby's Adventure USA Rev A)
+const PRG_BANK_PALETTE_TABLES: int = 0
+const PRG_BANK_CHR_TABLES: int = 5
+const PRG_BANK_ROOM_TABLES: int = 18
+const PRG_BANK_LOADER_TABLES: int = 19
+const PRG_BANK_HUD_PALETTES: int = 56
+const WORLD1_HUB_ROOM_ID: int = 0
+const WORLD2_HUB_ROOM_ID: int = 1
+const TOTAL_ROM_ROOMS: int = 327
+const TOTAL_ROM_TILESETS: int = 49
+const METATILES_PER_TILESET: int = 256
+const TILESET_STREAM_SIZE: int = 1344
+const ROOM_HEADER_SIZE: int = 218
+const ROOM_SCREEN_COLS: int = 16
+const ROOM_SCREEN_ROWS: int = 12
+const ROOM_SCREEN_METATILES: int = 192
 
 enum CopyAbility {
 	NONE = 0,
@@ -100,7 +118,42 @@ enum TileCollision {
 	BREAKABLE_STAR = 8,
 	SPIKE_HAZARD = 9,
 	DOOR_TRANSITION = 10,
+	SLOPE_26_DOWN_L = 11,
+	SLOPE_26_DOWN_H = 12,
+	BOMB_BLOCK = 13,
 }
+
+
+static func map_nes_collision_to_enum(nes_collision_byte: int) -> int:
+	var shape: int = nes_collision_byte & 0x0F
+	var is_water: bool = (nes_collision_byte & 0x80) != 0
+	var is_breakable: bool = (nes_collision_byte & 0x20) != 0
+
+	if shape == 0:
+		return TileCollision.WATER if is_water else TileCollision.AIR
+	if shape == 1:
+		return TileCollision.ONE_WAY
+	if shape == 2:
+		return TileCollision.BREAKABLE_STAR if is_breakable else TileCollision.SOLID
+	if shape == 3:
+		return TileCollision.SLOPE_26_UP_L
+	if shape == 4:
+		return TileCollision.SLOPE_26_DOWN_L
+	if shape == 5:
+		return TileCollision.SLOPE_45_UP
+	if shape == 6:
+		return TileCollision.SLOPE_45_DOWN
+	if shape == 9 or shape == 10:
+		return TileCollision.SLOPE_26_UP_H
+	if shape == 11 or shape == 12:
+		return TileCollision.SLOPE_26_DOWN_H
+	if shape == 13:
+		return TileCollision.SOLID
+	if shape == 14:
+		return TileCollision.BOMB_BLOCK if is_breakable else TileCollision.SPIKE_HAZARD
+	if shape == 15:
+		return TileCollision.SPIKE_HAZARD
+	return TileCollision.SOLID if is_water == false else TileCollision.WATER
 
 # Authentic 2C02 NTSC 64-color master palette (RGB24 packed integers)
 static func get_ntsc_master_palette_rgb() -> PackedInt32Array:
