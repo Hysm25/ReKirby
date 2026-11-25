@@ -295,6 +295,13 @@ func _test_live_world1_stages_and_boss_vertical_slice() -> void:
 	if game._title_screen != null and game._title_screen.get_surface_texture() != null:
 		_assert_eq_int(game._title_screen.get_surface_texture().get_width(), Constants.NATIVE_WIDTH, "TitleScreen surface width is 256px")
 		_assert_eq_int(game._title_screen.get_surface_texture().get_height(), Constants.NATIVE_HEIGHT, "TitleScreen surface height is 240px")
+		var ts_img: Image = game._title_screen.get_surface_texture().get_image()
+		var logo_colors: Dictionary = {}
+		for lx: int in range(64, 192, 4):
+			for ly: int in range(48, 176, 4):
+				var col_k: String = "%.2f_%.2f_%.2f" % [ts_img.get_pixel(lx, ly).r, ts_img.get_pixel(lx, ly).g, ts_img.get_pixel(lx, ly).b]
+				logo_colors[col_k] = true
+		_assert_true(logo_colors.size() >= 4, "TitleScreen renders multi-palette B61 $AB5C logo & cloud artwork (%d colors)" % logo_colors.size())
 
 	InputManager.set_mock_mask(Constants.NesButton.START)
 	game._physics_process(1.0 / 60.0)

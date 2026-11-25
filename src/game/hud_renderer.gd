@@ -1,13 +1,16 @@
 class_name HUDRenderer
 extends Control
 ## MMC3 Scanline IRQ Split Bottom HUD (256x48 at Y=192..239).
-## Renders HP pips, lives, score, boss HP, and Copy Ability portrait card
-## strictly from ROM CHR banks and Bank 56 HUD palettes in ContentRegistry.
+## Assembles nametable rows, 4x5 Copy Ability card, HP pips, lives box, and SCORE/ENEMY strip
+## strictly from runtime ROM-extracted Bank 19 nametables, CHR banks, and room BG_3 palettes.
 
 const Constants = preload("res://src/core/constants.gd")
 
 const HUD_WIDTH: int = Constants.NATIVE_WIDTH
 const HUD_HEIGHT: int = Constants.HUD_HEIGHT
+const HUD_COLS: int = 32
+const HUD_VISIBLE_ROWS: int = 7
+const HUD_CROP_Y: int = 4
 
 var _hp: int = 6
 var _max_hp: int = 6
@@ -17,6 +20,9 @@ var _copy_ability: int = Constants.CopyAbility.NONE
 var _boss_id: int = -1
 var _boss_hp: int = 0
 var _boss_max_hp: int = 0
+var _room_id: int = -1
+var _is_hub: bool = false
+var _anim_tick: int = 0
 
 var _dirty: bool = true
 var _hud_image: Image = null
@@ -57,6 +63,16 @@ func connect_event_bus() -> void:
 		EventBus.copy_ability_changed.connect(_on_copy_ability_changed)
 	if not EventBus.boss_hp_changed.is_connected(_on_boss_hp_changed):
 		EventBus.boss_hp_changed.connect(_on_boss_hp_changed)
+	if not EventBus.room_changed.is_connected(_on_room_changed):
+		EventBus.room_changed.connect(_on_room_changed)
+
+
+func set_hud_mode(is_hub: bool) -> void:
+	if _is_hub == is_hub:
+		return
+	_is_hub = is_hub
+	_dirty = true
+	refresh()
 
 
 func set_status(hp: int, max_hp: int, lives: int, score: int, ability: int) -> void:
@@ -105,6 +121,10 @@ func get_hud_texture() -> ImageTexture:
 	return _hud_texture
 
 
+func get_hud_image() -> Image:
+	return _hud_image
+
+
 func is_dirty() -> bool:
 	return _dirty
 
@@ -151,168 +171,173 @@ func _on_boss_hp_changed(boss_id: int, current_hp: int, max_hp: int) -> void:
 	refresh()
 
 
+func _on_room_changed(_world_id: int, _stage_id: int, room_id: int) -> void:
+	_room_id = room_id
+	_is_hub = (room_id >= 0 and room_id < 7)
+	_dirty = true
+	refresh()
+
+
+func _resolve_hud_palette() -> PackedColorArray:
+	if _room_id >= 0:
+		var room_pal: PackedColorArray = ContentRegistry.get_palette_colors("room_%d_bg_3" % _room_id)
+		if room_pal.size() >= 4:
+			return room_pal
+	var stage1_pal: PackedColorArray = ContentRegistry.get_palette_colors("room_43_bg_3")
+	if stage1_pal.size() >= 4:
+		return stage1_pal
+	return ContentRegistry.get_palette_colors("hud_bg_0")
+
+
 func _rebuild_hud_texture() -> void:
-	var font_img: Image = ContentRegistry.get_chr_bank_image(Constants.CHR_BANK_HUD_FONT)
-	var card_img: Image = ContentRegistry.get_chr_bank_image(Constants.CHR_BANK_HUD_CARDS_A)
-	var pal_bg0: PackedColorArray = ContentRegistry.get_palette_colors("hud_bg_0")
-	var pal_bg1: PackedColorArray = ContentRegistry.get_palette_colors("hud_bg_1")
-	var pal_bg2: PackedColorArray = ContentRegistry.get_palette_colors("hud_bg_2")
-	var pal_kirby: PackedColorArray = ContentRegistry.get_palette_colors("kirby_default")
-	if font_img == null or card_img == null or pal_bg0.size() < 4 or pal_bg1.size() < 4 or pal_bg2.size() < 4 or pal_kirby.size() < 4:
+	var hud_layout: Dictionary = ContentRegistry.get_hud_layout()
+	var hud_pal: PackedColorArray = _resolve_hud_palette()
+	if hud_layout.is_empty() or hud_pal.size() < 4:
 		return
 
-	var out_rgba: PackedByteArray = PackedByteArray()
-	out_rgba.resize(HUD_WIDTH * HUD_HEIGHT * 4)
+	var base_key: String = "hub_nametable" if _is_hub else "stage_nametable"
+	var base_arr: Array = hud_layout.get(base_key, []) as Array
+	if base_arr.size() < HUD_COLS * HUD_VISIBLE_ROWS:
+		return
 
-	# Fill base HUD panel backdrop using ROM HUD palette universal color & panel pink
-	_fill_rect(out_rgba, 0, 0, HUD_WIDTH, HUD_HEIGHT, pal_bg0[0])
-	_fill_rect(out_rgba, 4, 3, HUD_WIDTH - 8, HUD_HEIGHT - 6, pal_bg0[1])
-	_fill_rect(out_rgba, 6, 5, 174, HUD_HEIGHT - 10, pal_bg0[0])
+	var tile_grid: PackedInt32Array = PackedInt32Array()
+	tile_grid.resize(HUD_COLS * HUD_VISIBLE_ROWS)
+	for idx: int in range(tile_grid.size()):
+		tile_grid[idx] = int(base_arr[idx]) & 0xFF
 
-	var font_rgba: PackedByteArray = font_img.get_data()
-	var card_rgba: PackedByteArray = card_img.get_data()
+	var anim_banks: Array = hud_layout.get("chr_r2_anim_banks", [Constants.CHR_BANK_HUD_ANIM_BASE]) as Array
+	var r2_bank: int = int(anim_banks[(_anim_tick >> 3) % anim_banks.size()]) if not anim_banks.is_empty() else Constants.CHR_BANK_HUD_ANIM_BASE
+	var r3_bank: int = Constants.CHR_BANK_HUD_CARDS_A
+	var r4_bank: int = int(hud_layout.get("chr_r4_frame", Constants.CHR_BANK_HUD_BG_FRAME))
+	var r5_bank: int = int(hud_layout.get("chr_r5_text", Constants.CHR_BANK_HUD_BG_TEXT))
 
-	# Row 1 (Y=7): SCORE label + 7 digits using ROM font CHR bank 254 (0xFE)
-	var score_str: String = "SCORE %07d" % mini(_score, 9999999)
-	_draw_rom_text(out_rgba, font_rgba, score_str, 12, 7, pal_bg1, pal_bg0[0])
+	if _is_hub:
+		# Hub HUD (B19 $AED5 / $B46E): writes 2 lives digits at row 5, cols 26..27
+		var hub_lives: String = "%02d" % mini(_lives, 99)
+		_set_tile(tile_grid, 26, 5, 0xC0 + map_char_to_font_tile(hub_lives.substr(0, 1)))
+		_set_tile(tile_grid, 27, 5, 0xC0 + map_char_to_font_tile(hub_lives.substr(1, 1)))
+	else:
+		# Stage HUD: overlay $B3E1 8x7 lives packet at (23, 0)
+		var lives_tiles: Array = hud_layout.get("lives_stage_tiles", []) as Array
+		var box_col: int = int(hud_layout.get("lives_box_col", 23))
+		var box_row: int = int(hud_layout.get("lives_box_row", 0))
+		var box_cols: int = int(hud_layout.get("lives_box_cols", 8))
+		var box_rows: int = int(hud_layout.get("lives_box_rows", 7))
+		if lives_tiles.size() >= box_cols * box_rows:
+			for ly: int in range(box_rows):
+				for lx: int in range(box_cols):
+					_set_tile(tile_grid, box_col + lx, box_row + ly, int(lives_tiles[ly * box_cols + lx]) & 0xFF)
 
-	# Row 2 (Y=20): Kirby mini icon + Lives + HP Pips via extracted PRG-ROM metasprite
-	var k_icon_img: Image = _get_rom_kirby_portrait_image()
-	if k_icon_img != null:
-		_blit_rgba_image(out_rgba, k_icon_img, 12, 20)
+		var lives_str: String = "%02d" % mini(_lives, 99)
+		_set_tile(tile_grid, 27, 4, 0xC0 + map_char_to_font_tile(lives_str.substr(0, 1)))
+		_set_tile(tile_grid, 28, 4, 0xC0 + map_char_to_font_tile(lives_str.substr(1, 1)))
 
-	var lives_str: String = "%02d" % mini(_lives, 99)
-	_draw_rom_text(out_rgba, font_rgba, lives_str, 30, 24, pal_bg1, pal_bg0[0])
+		# Copy Ability Card (4x5 column-major tiles at col 19, row 1; B19 $B313/$B338)
+		var ab_map: Dictionary = hud_layout.get("ability_card_map", {}) as Dictionary
+		var cards_arr: Array = hud_layout.get("cards", []) as Array
+		var rom_card_idx: int = int(ab_map.get(str(_copy_ability), 0))
+		if rom_card_idx >= 0 and rom_card_idx < cards_arr.size():
+			var card_spec: Dictionary = cards_arr[rom_card_idx] as Dictionary
+			r3_bank = int(card_spec.get("r3_bank", r3_bank))
+			var base_tile: int = (int(card_spec.get("base_tile", 0)) & 0x0F) | 0x40
+			var card_col: int = int(hud_layout.get("card_col", 19))
+			var card_row: int = int(hud_layout.get("card_row", 1))
+			var card_cols: int = int(hud_layout.get("card_cols", 4))
+			var card_rows: int = int(hud_layout.get("card_rows", 5))
+			for cx: int in range(card_cols):
+				for cy: int in range(card_rows):
+					_set_tile(tile_grid, card_col + cx, card_row + cy, base_tile + cx * 0x10 + cy)
 
-	# HP Pips using Bank 221 tile 0x09 (pip glyph)
-	_draw_rom_text(out_rgba, font_rgba, "HP", 56, 24, pal_bg1, pal_bg0[0])
-	var pip_count: int = clampi(_max_hp, 1, 8)
-	for i: int in range(pip_count):
-		var px: int = 76 + i * 10
-		var pip_pal: PackedColorArray = pal_bg2 if i < _hp else pal_bg0
-		_blit_single_tile(out_rgba, card_rgba, 0x09, px, 24, pip_pal, false, i < _hp, pal_bg0[1], pal_bg0[0])
+		# HP Pips (6 pips x 3 rows at col 10..15, rows 1..3; B19 $B227)
+		var hp_col: int = int(hud_layout.get("hp_pip_col", 10))
+		var hp_row: int = int(hud_layout.get("hp_pip_row", 1))
+		var hp_slots: int = int(hud_layout.get("hp_pip_max", 6))
+		var full_arr: Array = hud_layout.get("hp_pip_full", [0x1A, 0x1B, 0x1C]) as Array
+		var empty_arr: Array = hud_layout.get("hp_pip_empty", [0x81, 0x98, 0x81]) as Array
+		var filled_pips: int = clampi(int(roundf((float(_hp) / float(maxi(1, _max_hp))) * float(hp_slots))), 0, hp_slots)
+		for p_i: int in range(hp_slots):
+			var src_col_tiles: Array = full_arr if p_i < filled_pips else empty_arr
+			for r_i: int in range(3):
+				_set_tile(tile_grid, hp_col + p_i, hp_row + r_i, int(src_col_tiles[r_i]) & 0xFF)
 
-	# Optional Boss HP bar when boss fight is active
-	if _boss_max_hp > 0:
-		var boss_pips: int = clampi(_boss_hp, 0, 12)
-		_draw_rom_text(out_rgba, font_rgba, "BOSS", 56, 35, pal_bg1, pal_bg0[0])
-		for b_i: int in range(12):
-			var bpx: int = 92 + b_i * 7
-			var filled_b: bool = b_i < boss_pips
-			_blit_single_tile(out_rgba, card_rgba, 0x09, bpx, 35, pal_bg1 if filled_b else pal_bg0, false, filled_b, pal_bg0[2], pal_bg0[0])
+		# Row 4: SCORE + 7 digits OR ENEMY + Boss HP gauge (cols 3..16; B19 $B12C / $B1F6)
+		var s_row: int = int(hud_layout.get("score_row", 4))
+		var l_col: int = int(hud_layout.get("score_label_col", 3))
+		var d_col: int = int(hud_layout.get("score_digits_col", 10))
+		if _boss_max_hp > 0:
+			var enemy_tiles: Array = hud_layout.get("enemy_label_tiles", []) as Array
+			for e_i: int in range(mini(6, enemy_tiles.size())):
+				_set_tile(tile_grid, l_col + e_i, s_row, int(enemy_tiles[e_i]) & 0xFF)
+			_set_tile(tile_grid, d_col - 1, s_row, 0x81)
+			var boss_units: int = clampi(int(roundf((float(_boss_hp) / float(_boss_max_hp)) * 28.0)), 0, 28)
+			for b_i: int in range(7):
+				var seg: int = clampi(boss_units - b_i * 4, 0, 4)
+				var b_tile: int = 0x81
+				if seg > 0:
+					b_tile = 0x93 + seg
+				elif b_i == 0:
+					b_tile = 0x92
+				_set_tile(tile_grid, d_col + b_i, s_row, b_tile)
+		else:
+			var score_tiles: Array = hud_layout.get("score_label_tiles", []) as Array
+			for s_i: int in range(mini(6, score_tiles.size())):
+				_set_tile(tile_grid, l_col + s_i, s_row, int(score_tiles[s_i]) & 0xFF)
+			_set_tile(tile_grid, d_col - 1, s_row, 0x81)
+			var score_str: String = "%07d" % mini(_score, 9999999)
+			for d_i: int in range(7):
+				var digit_local: int = map_char_to_font_tile(score_str.substr(d_i, 1))
+				_set_tile(tile_grid, d_col + d_i, s_row, 0xC0 + digit_local)
 
-	# Right Card Frame (X=184..248, Y=5..43): Copy Ability portrait + label
-	_fill_rect(out_rgba, 184, 5, 64, 38, pal_bg2[0])
-	_fill_rect(out_rgba, 186, 7, 60, 34, pal_bg2[2])
-	_draw_ability_card_portrait(out_rgba, 208, 10)
-	var ab_label: String = _ability_label(_copy_ability)
-	var label_x: int = 186 + (60 - ab_label.length() * Constants.TILE_SIZE) / 2
-	_draw_rom_text(out_rgba, font_rgba, ab_label, label_x, 30, pal_bg1, pal_bg0[0])
+	var chr_slots: PackedInt32Array = PackedInt32Array([r2_bank, r3_bank, r4_bank, r5_bank])
+	var bank_data: Array[PackedByteArray] = []
+	bank_data.resize(4)
+	for slot_idx: int in range(4):
+		var b_img: Image = ContentRegistry.get_chr_bank_image(chr_slots[slot_idx])
+		if b_img == null or b_img.is_empty():
+			return
+		bank_data[slot_idx] = b_img.get_data()
+
+	var full_h: int = HUD_VISIBLE_ROWS * Constants.TILE_SIZE
+	var full_rgba: PackedByteArray = PackedByteArray()
+	full_rgba.resize(HUD_WIDTH * full_h * 4)
+
+	for ty: int in range(HUD_VISIBLE_ROWS):
+		for tx: int in range(HUD_COLS):
+			var tile_id: int = tile_grid[ty * HUD_COLS + tx]
+			var slot: int = (tile_id >> 6) & 0x03
+			var local_tile: int = tile_id & 0x3F
+			var src_rgba: PackedByteArray = bank_data[slot]
+			var tx0: int = (local_tile % 8) * Constants.TILE_SIZE
+			var ty0: int = (local_tile / 8) * Constants.TILE_SIZE
+			var dst_x0: int = tx * Constants.TILE_SIZE
+			var dst_y0: int = ty * Constants.TILE_SIZE
+			for py: int in range(Constants.TILE_SIZE):
+				var src_row: int = ((ty0 + py) * Constants.CHR_1K_BANK_SHEET_WIDTH + tx0) * 4
+				var dst_row: int = ((dst_y0 + py) * HUD_WIDTH + dst_x0) * 4
+				for px: int in range(Constants.TILE_SIZE):
+					var gray: int = src_rgba[src_row + px * 4]
+					var c_idx: int = clampi((gray + 42) / 85, 0, 3)
+					var col: Color = hud_pal[c_idx]
+					var dst_off: int = dst_row + px * 4
+					full_rgba[dst_off] = clampi(int(round(col.r * 255.0)), 0, 255)
+					full_rgba[dst_off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)
+					full_rgba[dst_off + 2] = clampi(int(round(col.b * 255.0)), 0, 255)
+					full_rgba[dst_off + 3] = 255
+
+	var start_byte: int = HUD_CROP_Y * HUD_WIDTH * 4
+	var end_byte: int = (HUD_CROP_Y + HUD_HEIGHT) * HUD_WIDTH * 4
+	var out_rgba: PackedByteArray = full_rgba.slice(start_byte, end_byte)
 
 	_hud_image = Image.create_from_data(HUD_WIDTH, HUD_HEIGHT, false, Image.FORMAT_RGBA8, out_rgba)
-	if _hud_texture == null:
-		_hud_texture = ImageTexture.create_from_image(_hud_image)
-	else:
-		_hud_texture.update(_hud_image)
+	_hud_texture = ImageTexture.create_from_image(_hud_image)
 	_ensure_texture_rect()
 	_texture_rect.texture = _hud_texture
 
 
-func _get_rom_kirby_portrait_image() -> Image:
-	var frame_spec: Dictionary = ContentRegistry.get_kirby_metasprite_frame("default", 0)
-	if not frame_spec.is_empty():
-		var built: Dictionary = ContentRegistry.build_rom_metasprite(frame_spec, ContentRegistry.get_room_sprite_palettes(-1))
-		if not built.is_empty():
-			var tex: ImageTexture = built["texture"] as ImageTexture
-			if tex != null:
-				return tex.get_image()
-	return null
-
-
-func _blit_rgba_image(out_rgba: PackedByteArray, src_img: Image, dst_x: int, dst_y: int) -> void:
-	if src_img == null or src_img.is_empty():
+static func _set_tile(grid: PackedInt32Array, col: int, row: int, tile_id: int) -> void:
+	if col < 0 or col >= HUD_COLS or row < 0 or row >= HUD_VISIBLE_ROWS:
 		return
-	var w: int = src_img.get_width()
-	var h: int = src_img.get_height()
-	var src_rgba: PackedByteArray = src_img.get_data()
-	for py: int in range(h):
-		var dy: int = dst_y + py
-		if dy < 0 or dy >= HUD_HEIGHT:
-			continue
-		for px: int in range(w):
-			var dx: int = dst_x + px
-			if dx < 0 or dx >= HUD_WIDTH:
-				continue
-			var src_off: int = (py * w + px) * 4
-			if src_rgba[src_off + 3] == 0:
-				continue
-			var dst_off: int = (dy * HUD_WIDTH + dx) * 4
-			out_rgba[dst_off] = src_rgba[src_off]
-			out_rgba[dst_off + 1] = src_rgba[src_off + 1]
-			out_rgba[dst_off + 2] = src_rgba[src_off + 2]
-			out_rgba[dst_off + 3] = 255
-
-
-func _draw_ability_card_portrait(out_rgba: PackedByteArray, dst_x: int, dst_y: int) -> void:
-	if _copy_ability == Constants.CopyAbility.NONE:
-		var k_img: Image = _get_rom_kirby_portrait_image()
-		if k_img != null:
-			_blit_rgba_image(out_rgba, k_img, dst_x, dst_y)
-			return
-	var bank_id: int = Constants.CHR_BANK_KIRBY_DEFAULT
-	var tiles: PackedInt32Array = PackedInt32Array([2, 18, 3, 19])
-	var w_t: int = 2
-	var h_t: int = 2
-	var pal_key: String = "kirby_default"
-
-	match _copy_ability:
-		Constants.CopyAbility.SWORD:
-			bank_id = Constants.CHR_BANK_ABILITY_EFFECTS
-			tiles = PackedInt32Array([2, 3])
-			w_t = 1
-			h_t = 2
-			pal_key = "hud_sp_star"
-		Constants.CopyAbility.FIRE:
-			bank_id = Constants.CHR_BANK_ABILITY_EFFECTS
-			tiles = PackedInt32Array([4, 6, 5, 7])
-			w_t = 2
-			h_t = 2
-			pal_key = "hud_sp_fire"
-		Constants.CopyAbility.SPARK:
-			bank_id = Constants.CHR_BANK_STAR_EFFECTS
-			tiles = PackedInt32Array([4, 5])
-			w_t = 1
-			h_t = 2
-			pal_key = "hud_sp_star"
-		Constants.CopyAbility.BEAM:
-			bank_id = Constants.CHR_BANK_ABILITY_EFFECTS
-			tiles = PackedInt32Array([12, 14, 13, 15])
-			w_t = 2
-			h_t = 2
-			pal_key = "hud_sp_beam"
-		_:
-			pass
-
-	var img: Image = ContentRegistry.get_chr_bank_image(bank_id)
-	var pal: PackedColorArray = ContentRegistry.get_palette_colors(pal_key)
-	if img == null or pal.size() < 4:
-		return
-	var offset_x: int = dst_x + (16 - w_t * Constants.TILE_SIZE) / 2
-	_blit_tile_grid(out_rgba, img.get_data(), tiles, w_t, h_t, offset_x, dst_y, pal, true)
-
-
-static func _ability_label(ability: int) -> String:
-	match ability:
-		Constants.CopyAbility.SWORD:
-			return "SWORD"
-		Constants.CopyAbility.FIRE:
-			return "FIRE"
-		Constants.CopyAbility.SPARK:
-			return "SPARK"
-		Constants.CopyAbility.BEAM:
-			return "BEAM"
-		_:
-			return "NORMAL"
+	grid[row * HUD_COLS + col] = tile_id & 0xFF
 
 
 static func map_char_to_font_tile(ch: String) -> int:
@@ -320,137 +345,15 @@ static func map_char_to_font_tile(ch: String) -> int:
 		return -1
 	var code: int = ch.unicode_at(0)
 	if code >= 48 and code <= 57:
-		return 0x1C + (code - 48) # '0'..'9' -> 0x1C..0x25 in CHR Bank 254 (0xFE)
+		return 0x1C + (code - 48) # '0'..'9' -> 0x1C..0x25 in CHR 63 / 254
 	if code >= 65 and code <= 90:
-		return 0x26 + (code - 65) # 'A'..'Z' -> 0x26..0x3F in CHR Bank 254 (0xFE)
+		return 0x26 + (code - 65) # 'A'..'Z' -> 0x26..0x3F in CHR 63 / 254
+	if ch == "-":
+		return 0x18
+	if ch == "x":
+		return 0x19
 	return -1
 
 
 static func _ascii_to_rom_font_tile(ch: String) -> int:
 	return map_char_to_font_tile(ch)
-
-
-func _draw_rom_text(
-	out_rgba: PackedByteArray,
-	font_rgba: PackedByteArray,
-	text: String,
-	dst_x: int,
-	dst_y: int,
-	palette: PackedColorArray,
-	bg_override: Color
-) -> void:
-	for idx: int in range(text.length()):
-		var tile_id: int = _ascii_to_rom_font_tile(text.substr(idx, 1))
-		if tile_id < 0:
-			continue
-		var tx0: int = (tile_id % 8) * Constants.TILE_SIZE
-		var ty0: int = (tile_id / 8) * Constants.TILE_SIZE
-		for py: int in range(Constants.TILE_SIZE):
-			var sy: int = ty0 + py
-			var dy: int = dst_y + py
-			if dy < 0 or dy >= HUD_HEIGHT:
-				continue
-			var src_row: int = (sy * Constants.CHR_1K_BANK_SHEET_WIDTH + tx0) * 4
-			var dst_row: int = (dy * HUD_WIDTH) * 4
-			for px: int in range(Constants.TILE_SIZE):
-				var dx: int = dst_x + idx * Constants.TILE_SIZE + px
-				if dx < 0 or dx >= HUD_WIDTH:
-					continue
-				var gray: int = font_rgba[src_row + px * 4]
-				var c_idx: int = clampi((gray + 42) / 85, 0, 3)
-				# Color 0 and 1 in Bank 254 (0xFE) are transparent glyph cell background; 3=primary stroke, 2=drop shadow
-				if c_idx <= 1:
-					continue
-				var col: Color = palette[1] if c_idx == 3 else bg_override
-				var dst_off: int = dst_row + dx * 4
-				out_rgba[dst_off] = clampi(int(round(col.r * 255.0)), 0, 255)
-				out_rgba[dst_off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)
-				out_rgba[dst_off + 2] = clampi(int(round(col.b * 255.0)), 0, 255)
-				out_rgba[dst_off + 3] = 255
-
-
-func _blit_tile_grid(
-	out_rgba: PackedByteArray,
-	bank_rgba: PackedByteArray,
-	tiles: PackedInt32Array,
-	cols: int,
-	rows: int,
-	dst_x: int,
-	dst_y: int,
-	palette: PackedColorArray,
-	transparent_zero: bool
-) -> void:
-	for ty: int in range(rows):
-		for tx: int in range(cols):
-			var idx: int = ty * cols + tx
-			if idx >= tiles.size():
-				continue
-			_blit_single_tile(
-				out_rgba,
-				bank_rgba,
-				tiles[idx],
-				dst_x + tx * Constants.TILE_SIZE,
-				dst_y + ty * Constants.TILE_SIZE,
-				palette,
-				transparent_zero,
-				false,
-				Color.BLACK,
-				Color.BLACK
-			)
-
-
-func _blit_single_tile(
-	out_rgba: PackedByteArray,
-	bank_rgba: PackedByteArray,
-	tile_id: int,
-	dst_x: int,
-	dst_y: int,
-	palette: PackedColorArray,
-	transparent_zero: bool,
-	fill_interior: bool,
-	interior_col: Color,
-	outline_col: Color
-) -> void:
-	var local_tile: int = tile_id & 0x3F
-	var tx0: int = (local_tile % 8) * Constants.TILE_SIZE
-	var ty0: int = (local_tile / 8) * Constants.TILE_SIZE
-	for py: int in range(Constants.TILE_SIZE):
-		var dy: int = dst_y + py
-		if dy < 0 or dy >= HUD_HEIGHT:
-			continue
-		var src_row: int = ((ty0 + py) * Constants.CHR_1K_BANK_SHEET_WIDTH + tx0) * 4
-		var dst_row: int = dy * HUD_WIDTH * 4
-		for px: int in range(Constants.TILE_SIZE):
-			var dx: int = dst_x + px
-			if dx < 0 or dx >= HUD_WIDTH:
-				continue
-			var gray: int = bank_rgba[src_row + px * 4]
-			var c_idx: int = clampi((gray + 42) / 85, 0, 3)
-			if transparent_zero and c_idx == 0:
-				continue
-			var col: Color = palette[c_idx]
-			if fill_interior and py >= 2 and py <= 5 and px >= 2 and px <= 5:
-				col = interior_col
-			elif not fill_interior and c_idx == 0 and outline_col != Color.BLACK:
-				col = outline_col
-			var dst_off: int = dst_row + dx * 4
-			out_rgba[dst_off] = clampi(int(round(col.r * 255.0)), 0, 255)
-			out_rgba[dst_off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)
-			out_rgba[dst_off + 2] = clampi(int(round(col.b * 255.0)), 0, 255)
-			out_rgba[dst_off + 3] = 255
-
-
-static func _fill_rect(out_rgba: PackedByteArray, x0: int, y0: int, w: int, h: int, col: Color) -> void:
-	var r8: int = clampi(int(round(col.r * 255.0)), 0, 255)
-	var g8: int = clampi(int(round(col.g * 255.0)), 0, 255)
-	var b8: int = clampi(int(round(col.b * 255.0)), 0, 255)
-	var x_end: int = mini(HUD_WIDTH, x0 + w)
-	var y_end: int = mini(HUD_HEIGHT, y0 + h)
-	for py: int in range(maxi(0, y0), y_end):
-		var row_off: int = py * HUD_WIDTH * 4
-		for px: int in range(maxi(0, x0), x_end):
-			var off: int = row_off + px * 4
-			out_rgba[off] = r8
-			out_rgba[off + 1] = g8
-			out_rgba[off + 2] = b8
-			out_rgba[off + 3] = 255

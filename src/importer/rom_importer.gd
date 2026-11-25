@@ -135,6 +135,7 @@ static func import_rom_file(
 		"tilesets": world1_res.tilesets,
 		"rooms": world1_res.rooms,
 		"metasprites": world1_res.metasprites,
+		"ui_layouts": world1_res.ui_layouts,
 	}
 	var world1_path: String = user_data_dir.path_join("world1_data.json")
 	var w1_file: FileAccess = FileAccess.open(world1_path, FileAccess.WRITE)
@@ -180,7 +181,8 @@ static func import_rom_file(
 		world1_res.tilesets,
 		world1_res.rooms,
 		audio_payload,
-		world1_res.metasprites
+		world1_res.metasprites,
+		world1_res.ui_layouts
 	)
 	if not ContentRegistry.is_ready():
 		res.error = "ContentRegistry failed to populate after ROM extraction."

@@ -366,6 +366,31 @@ func _test_live_rom_ingestion_if_present() -> void:
 			_assert_true(int(br0.get("tile", 0)) >= 0xE0, "Bronto Burt uses upper 1KB CHR bank R1+1 (tile=0x%02X)" % int(br0.get("tile", 0)))
 			_assert_eq_int(int(br0.get("pal", -1)), 3, "Bronto Burt uses SP3 sprite palette")
 
+	# Verify PRG-ROM HUD & Title Screen nametable/card extraction (Track B)
+	var hud_layout: Dictionary = ContentRegistry.get_hud_layout()
+	_assert_true(not hud_layout.is_empty(), "ContentRegistry exposes extracted ROM HUD layout")
+	_assert_eq_int((hud_layout.get("stage_nametable", []) as Array).size(), 256, "Stage HUD nametable B19 $AE7A unpacked 32x8 tiles")
+	_assert_eq_int((hud_layout.get("hub_nametable", []) as Array).size(), 256, "Hub HUD nametable B19 $AED5 unpacked 32x8 tiles")
+	_assert_eq_int((hud_layout.get("lives_stage_tiles", []) as Array).size(), 56, "Lives stage packet B19 $B3E1 extracted 8x7 tiles")
+	_assert_eq_int((hud_layout.get("cards", []) as Array).size(), 37, "Copy Ability card table B19 $B313/$B338 extracted 37 entries")
+	_assert_eq_int(int(hud_layout.get("chr_r4_frame", -1)), 58, "HUD R4 frame bank is CHR 58 (0x3A)")
+	_assert_eq_int(int(hud_layout.get("chr_r5_text", -1)), 63, "HUD R5 text bank is CHR 63 (0x3F)")
+
+	var title_layout: Dictionary = ContentRegistry.get_title_screen_layout()
+	_assert_true(not title_layout.is_empty(), "ContentRegistry exposes extracted ROM Title Screen layout")
+	_assert_eq_int((title_layout.get("nametable", []) as Array).size(), 960, "Title Screen nametable B61 $AB5C unpacked 32x30 tiles")
+	_assert_eq_int((title_layout.get("attributes", []) as Array).size(), 64, "Title Screen attribute table has 64 bytes")
+	var t_banks: Array = title_layout.get("chr_banks", []) as Array
+	_assert_eq_int(t_banks.size(), 4, "Title Screen resolves 4 x 1KB BG CHR banks")
+	if t_banks.size() == 4:
+		_assert_eq_int(int(t_banks[0]), 104, "Title Screen CHR R2 = 104")
+		_assert_eq_int(int(t_banks[3]), 107, "Title Screen CHR R5 = 107")
+	var t_pal0: PackedInt32Array = ContentRegistry.get_palette_indices("title_bg_0")
+	_assert_eq_int(t_pal0.size(), 4, "Title Screen BG0 palette extracted from B61 $ADB8")
+	if t_pal0.size() == 4:
+		_assert_eq_int(t_pal0[0], 0x30, "Title Screen universal sky color is 0x30")
+		_assert_eq_int(t_pal0[1], 0x25, "Title Screen BG0 accent color is 0x25")
+
 	# Clean up temporary test extraction directory
 	_cleanup_dir_recursive(test_user_dir)
 

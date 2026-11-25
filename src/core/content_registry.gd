@@ -13,6 +13,7 @@ var _metatiles: Dictionary = {}
 var _rooms: Dictionary = {}
 var _audio_tables: Dictionary = {}
 var _metasprites: Dictionary = {}
+var _ui_layouts: Dictionary = {}
 var _sprite_tex_cache: Dictionary = {}
 var _metasprite_cache: Dictionary = {}
 
@@ -31,6 +32,7 @@ func clear() -> void:
 	_rooms.clear()
 	_audio_tables.clear()
 	_metasprites.clear()
+	_ui_layouts.clear()
 	_sprite_tex_cache.clear()
 	_metasprite_cache.clear()
 
@@ -57,7 +59,8 @@ func populate_from_extraction(
 	metatiles: Dictionary,
 	rooms: Dictionary,
 	audio_tables: Dictionary,
-	metasprites: Dictionary = {}
+	metasprites: Dictionary = {},
+	ui_layouts: Dictionary = {}
 ) -> void:
 	if chr_1k_images.size() != Constants.EXPECTED_CHR_BANKS_1K:
 		push_error("ContentRegistry: Expected %d 1KB CHR banks, received %d." % [Constants.EXPECTED_CHR_BANKS_1K, chr_1k_images.size()])
@@ -75,6 +78,7 @@ func populate_from_extraction(
 	_rooms = _normalize_int_keyed_dict(rooms.duplicate(true))
 	_audio_tables = audio_tables.duplicate(true)
 	_metasprites = metasprites.duplicate(true)
+	_ui_layouts = ui_layouts.duplicate(true)
 	_initialized = true
 
 
@@ -150,6 +154,8 @@ func load_from_user_data(
 		return false
 	var metasprites_var: Variant = world1_data.get("metasprites", {})
 	var metasprites: Dictionary = metasprites_var as Dictionary if (metasprites_var is Dictionary) else {}
+	var ui_layouts_var: Variant = world1_data.get("ui_layouts", {})
+	var ui_layouts: Dictionary = ui_layouts_var as Dictionary if (ui_layouts_var is Dictionary) else {}
 
 	var loaded_1k_images: Array[Image] = []
 	for bank_8k: int in range(Constants.EXPECTED_CHR_BANKS_8K):
@@ -171,7 +177,7 @@ func load_from_user_data(
 			var bank_1k_img: Image = sheet_img.get_region(slice_rect)
 			loaded_1k_images.append(bank_1k_img)
 
-	populate_from_extraction(manifest, loaded_1k_images, palettes, tilesets, rooms, audio_data, metasprites)
+	populate_from_extraction(manifest, loaded_1k_images, palettes, tilesets, rooms, audio_data, metasprites, ui_layouts)
 	return _initialized
 
 
@@ -413,6 +419,26 @@ func get_metasprites() -> Dictionary:
 	if not _initialized:
 		return {}
 	return _metasprites
+
+
+func get_ui_layouts() -> Dictionary:
+	if not _initialized:
+		return {}
+	return _ui_layouts
+
+
+func get_hud_layout() -> Dictionary:
+	if not _initialized:
+		return {}
+	var hud_var: Variant = _ui_layouts.get("hud", {})
+	return hud_var as Dictionary if (hud_var is Dictionary) else {}
+
+
+func get_title_screen_layout() -> Dictionary:
+	if not _initialized:
+		return {}
+	var title_var: Variant = _ui_layouts.get("title_screen", {})
+	return title_var as Dictionary if (title_var is Dictionary) else {}
 
 
 func get_actor_metasprite_frames(actor_id: int) -> Array:

@@ -742,22 +742,47 @@ func _test_live_rom_stage_1_1_if_present() -> void:
 	_assert_true(rom_bronto._frames_left.size() >= 2 and rom_bronto._frames_right.size() >= 2, "Bronto Burt builds left/right ROM metasprite frames from actor 41")
 	rom_bronto.free()
 
-	# Load Stage 1-2 Room 47 (contains water/slopes) and verify HUDRenderer renders 256x48 ROM texture without red glyph boxes
+	# Load Stage 1-2 Room 47 (contains water/slopes) and verify pixel-exact Track B ROM HUD rendering
 	_assert_true(lvl.load_room(47), "LevelMap loads extracted Stage 1-2 Room 47")
 	var hud: HUDRenderer = HUDRenderer.new()
-	hud.set_status(6, 6, 4, 2400, Constants.CopyAbility.SWORD)
-	_assert_true(hud.get_hud_texture() != null, "HUDRenderer builds 256x48 ImageTexture from ROM CHR + Bank 56 palettes")
+	hud.connect_event_bus()
+	EventBus.room_changed.emit(1, 2, 47)
+	hud.set_status(6, 6, 4, 2400, Constants.CopyAbility.NONE)
+	_assert_true(hud.get_hud_texture() != null, "HUDRenderer builds 256x48 ImageTexture from ROM nametable & Room BG_3 palette")
 	if hud.get_hud_texture() != null:
 		_assert_eq_int(hud.get_hud_texture().get_width(), Constants.NATIVE_WIDTH, "HUD texture width is 256px")
 		_assert_eq_int(hud.get_hud_texture().get_height(), Constants.HUD_HEIGHT, "HUD texture height is 48px")
-		var hud_img: Image = hud.get_hud_texture().get_image()
-		var black_bg_pixels: int = 0
-		for hx: int in range(14, 120):
-			for hy: int in range(7, 15):
-				var c: Color = hud_img.get_pixel(hx, hy)
-				if c.r < 0.05 and c.g < 0.05 and c.b < 0.05:
-					black_bg_pixels += 1
-		_assert_true(black_bg_pixels > 400, "HUD text background keeps transparent glyph padding over black (%d black px)" % black_bg_pixels)
+		var img_normal: Image = hud.get_hud_texture().get_image()
+
+		# Switch ability NONE -> SWORD -> FIRE -> SPARK -> BEAM and verify authentic 4x5 Card artwork pixels differ
+		hud.set_status(6, 6, 4, 2400, Constants.CopyAbility.SWORD)
+		var img_sword: Image = hud.get_hud_texture().get_image()
+		var card_diff_px: int = 0
+		for cx: int in range(152, 184):
+			for cy: int in range(4, 44):
+				if img_normal.get_pixel(cx, cy) != img_sword.get_pixel(cx, cy):
+					card_diff_px += 1
+		_assert_true(card_diff_px > 120, "Stage HUD Copy Ability Card (19..22, 1..5) swaps authentic 4x5 CHR art (%d diff px)" % card_diff_px)
+
+		# Switch SCORE strip to ENEMY boss gauge and verify row 4 pixels update
+		hud.set_boss_hp(56, 32, 64)
+		var img_boss: Image = hud.get_hud_texture().get_image()
+		var strip_diff_px: int = 0
+		for sx: int in range(24, 136):
+			for sy: int in range(28, 36):
+				if img_sword.get_pixel(sx, sy) != img_boss.get_pixel(sx, sy):
+					strip_diff_px += 1
+		_assert_true(strip_diff_px > 60, "Stage HUD row 4 swaps SCORE strip for ENEMY boss gauge (%d diff px)" % strip_diff_px)
+
+		# Toggle Hub HUD ($AED5) cleanly via room 0 event
+		EventBus.room_changed.emit(1, 1, 0)
+		var img_hub: Image = hud.get_hud_texture().get_image()
+		var hub_diff_px: int = 0
+		for hx: int in range(16, 240):
+			for hy: int in range(12, 36):
+				if img_boss.get_pixel(hx, hy) != img_hub.get_pixel(hx, hy):
+					hub_diff_px += 1
+		_assert_true(hub_diff_px > 200, "Hub HUD switches cleanly to Bank 19 $AED5 nametable (%d diff px)" % hub_diff_px)
 	hud.free()
 
 	InputManager.clear_mock_mask()

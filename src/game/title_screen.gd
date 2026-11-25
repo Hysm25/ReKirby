@@ -76,50 +76,15 @@ func setup_from_rom() -> void:
 	if font_bank == null:
 		return
 
-	var bg0: PackedColorArray = ContentRegistry.get_palette_colors("hud_bg_0")
 	var bg1: PackedColorArray = ContentRegistry.get_palette_colors("hud_bg_1")
-	var bg2: PackedColorArray = ContentRegistry.get_palette_colors("hud_bg_2")
-	var kirby_pal: PackedColorArray = ContentRegistry.get_palette_colors("kirby_default")
-	var star_pal: PackedColorArray = ContentRegistry.get_palette_colors("hud_sp_star")
-	if bg0.size() < 4 or kirby_pal.size() < 4:
-		return
-
-	var sky_color: Color = Color(0.0, 0.0, 0.0, 1.0)
-	var border_color: Color = kirby_pal[2] if kirby_pal.size() > 2 else Color(1.0, 0.55, 0.75, 1.0)
-	var accent_color: Color = star_pal[2] if star_pal.size() > 2 else bg0[3]
+	var title_bg0: PackedColorArray = ContentRegistry.get_palette_colors("title_bg_0")
+	var prompt_pal: PackedColorArray = title_bg0 if title_bg0.size() >= 4 else bg1
 
 	var img: Image = Image.create(Constants.NATIVE_WIDTH, Constants.NATIVE_HEIGHT, false, Image.FORMAT_RGBA8)
-	img.fill(sky_color)
-
-	# Clean NES-style frame border using ROM palette colors.
-	for x: int in range(8, Constants.NATIVE_WIDTH - 8):
-		img.set_pixel(x, 12, border_color)
-		img.set_pixel(x, 13, accent_color)
-		img.set_pixel(x, Constants.NATIVE_HEIGHT - 14, accent_color)
-		img.set_pixel(x, Constants.NATIVE_HEIGHT - 13, border_color)
-
-	var title_pal: PackedColorArray = PackedColorArray([
-		Color(0.0, 0.0, 0.0, 0.0),
-		Color(0.0, 0.0, 0.0, 0.0),
-		border_color,
-		bg0[3],
-	])
-	var gold_pal: PackedColorArray = PackedColorArray([
-		Color(0.0, 0.0, 0.0, 0.0),
-		Color(0.0, 0.0, 0.0, 0.0),
-		bg1[2] if bg1.size() > 2 else accent_color,
-		accent_color,
-	])
-	var sub_pal: PackedColorArray = PackedColorArray([
-		Color(0.0, 0.0, 0.0, 0.0),
-		Color(0.0, 0.0, 0.0, 0.0),
-		bg2[2] if bg2.size() > 2 else bg0[2],
-		bg0[3],
-	])
-
-	_draw_rom_text_scaled(img, font_bank, "KIRBYS", 80, 40, title_pal, 2)
-	_draw_rom_text_scaled(img, font_bank, "ADVENTURE", 56, 62, gold_pal, 2)
-	_draw_rom_text_scaled(img, font_bank, "WORLD 1 VERTICAL SLICE", 40, 92, sub_pal, 1)
+	var title_layout: Dictionary = ContentRegistry.get_title_screen_layout()
+	var rendered_nametable: bool = _render_title_nametable(img, title_layout)
+	if not rendered_nametable:
+		img.fill(Color(0.0, 0.0, 0.0, 1.0))
 
 	_surface_texture = ImageTexture.create_from_image(img)
 	_backdrop_rect.texture = _surface_texture
@@ -152,7 +117,9 @@ func setup_from_rom() -> void:
 		false,
 		1
 	)
+	_kirby_rect.position = Vector2(108.0, 96.0)
 	_kirby_rect.texture = _kirby_tex_open
+	_star_rect.position = Vector2(142.0, 102.0)
 	_star_rect.texture = (star_built["texture"] as ImageTexture) if not star_built.is_empty() else ContentRegistry.build_rom_oam_8x16(
 		Constants.CHR_BANK_STAR_EFFECTS,
 		Vector2i(18, 19),
@@ -166,11 +133,70 @@ func setup_from_rom() -> void:
 
 	var press_img: Image = Image.create(88, 8, false, Image.FORMAT_RGBA8)
 	press_img.fill(Color(0.0, 0.0, 0.0, 0.0))
-	_draw_rom_text_scaled(press_img, font_bank, "PRESS START", 0, 0, gold_pal, 1)
+	_draw_rom_text_scaled(press_img, font_bank, "PRESS START", 0, 0, prompt_pal, 1)
+	_press_start_rect.position = Vector2(84.0, 166.0)
 	_press_start_rect.texture = ImageTexture.create_from_image(press_img)
 	_press_start_rect.visible = true
 
 	_ready_visual = _surface_texture != null and _kirby_tex_open != null and _press_start_rect.texture != null
+
+
+static func _render_title_nametable(dest: Image, layout: Dictionary) -> bool:
+	if layout.is_empty():
+		return false
+	var chr_banks: Array = layout.get("chr_banks", []) as Array
+	var nt: Array = layout.get("nametable", []) as Array
+	var attrs: Array = layout.get("attributes", []) as Array
+	if chr_banks.size() < 4 or nt.size() < 960 or attrs.size() < 64:
+		return false
+
+	var bank_data: Array[PackedByteArray] = []
+	bank_data.resize(4)
+	for s_i: int in range(4):
+		var b_img: Image = ContentRegistry.get_chr_bank_image(int(chr_banks[s_i]))
+		if b_img == null or b_img.is_empty():
+			return false
+		bank_data[s_i] = b_img.get_data()
+
+	var pals: Array[PackedColorArray] = []
+	pals.resize(4)
+	for p_i: int in range(4):
+		var p_cols: PackedColorArray = ContentRegistry.get_palette_colors("title_bg_%d" % p_i)
+		if p_cols.size() < 4:
+			return false
+		pals[p_i] = p_cols
+
+	var out_rgba: PackedByteArray = PackedByteArray()
+	out_rgba.resize(Constants.NATIVE_WIDTH * Constants.NATIVE_HEIGHT * 4)
+
+	for ty: int in range(30):
+		for tx: int in range(32):
+			var tile_id: int = int(nt[ty * 32 + tx]) & 0xFF
+			var slot: int = (tile_id >> 6) & 0x03
+			var local_tile: int = tile_id & 0x3F
+			var attr_byte: int = int(attrs[(ty / 4) * 8 + (tx / 4)]) & 0xFF
+			var attr_shift: int = ((ty & 2) * 2) + (tx & 2)
+			var pal: PackedColorArray = pals[(attr_byte >> attr_shift) & 0x03]
+			var src_rgba: PackedByteArray = bank_data[slot]
+			var tx0: int = (local_tile % 8) * Constants.TILE_SIZE
+			var ty0: int = (local_tile / 8) * Constants.TILE_SIZE
+			var dst_x0: int = tx * Constants.TILE_SIZE
+			var dst_y0: int = ty * Constants.TILE_SIZE
+			for py: int in range(Constants.TILE_SIZE):
+				var src_row: int = ((ty0 + py) * Constants.CHR_1K_BANK_SHEET_WIDTH + tx0) * 4
+				var dst_row: int = ((dst_y0 + py) * Constants.NATIVE_WIDTH + dst_x0) * 4
+				for px: int in range(Constants.TILE_SIZE):
+					var gray: int = src_rgba[src_row + px * 4]
+					var c_idx: int = clampi((gray + 42) / 85, 0, 3)
+					var col: Color = pal[c_idx]
+					var dst_off: int = dst_row + px * 4
+					out_rgba[dst_off] = clampi(int(round(col.r * 255.0)), 0, 255)
+					out_rgba[dst_off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)
+					out_rgba[dst_off + 2] = clampi(int(round(col.b * 255.0)), 0, 255)
+					out_rgba[dst_off + 3] = 255
+
+	dest.set_data(Constants.NATIVE_WIDTH, Constants.NATIVE_HEIGHT, false, Image.FORMAT_RGBA8, out_rgba)
+	return true
 
 
 func step_frame() -> void:
@@ -184,10 +210,10 @@ func step_frame() -> void:
 		elif _kirby_tex_open != null:
 			_kirby_rect.texture = _kirby_tex_open
 		var bob_offset: float = -2.0 if ((_frame_counter / 20) % 2) == 1 else 0.0
-		_kirby_rect.position.y = 124.0 + bob_offset
+		_kirby_rect.position.y = 96.0 + bob_offset
 	if _star_rect != null:
 		var star_bob: float = -1.0 if ((_frame_counter / 15) % 2) == 1 else 1.0
-		_star_rect.position.y = 128.0 + star_bob
+		_star_rect.position.y = 102.0 + star_bob
 
 
 func is_ready_visual() -> bool:

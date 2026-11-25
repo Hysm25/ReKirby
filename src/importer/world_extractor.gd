@@ -55,6 +55,18 @@ const PRG_BANK_ACTOR_INDEX: int = 24
 const B56_HUD_PALETTE_ADDR: int = 0xB1CA # 4 HUD BG palettes (0..3) at $B1CA..$B1D9
 const B56_KIRBY_PALETTE_ADDR: int = 0xB1DA # Kirby default SP0 palette [0F, 35, 25, 0F]
 const B56_SP_EFFECT_PALETTE_ADDR: int = 0xB1DE # Fire/Star/Beam sprite palettes at $B1DE..$B1E9
+const B19_STAGE_HUD_NAMETABLE: int = 0xAE7A # HAL-compressed 32x8 bottom HUD layout
+const B19_HUB_HUD_NAMETABLE: int = 0xAED5 # HAL-compressed 32x8 hub map HUD layout
+const B19_HUD_ATTR_FILL_BYTE: int = 0xADFA # 0xFF -> BG_3 across rows 22..29 ($2BE8..$2BFF)
+const B19_SCORE_LABEL_BYTES: int = 0xB1F6 # 6 tiles ("SCORE-") written to $2B43
+const B19_ENEMY_LABEL_BYTES: int = 0xB12C # 6 tiles ("ENEMY-") written to $2B43
+const B19_CARD_R3_BANKS: int = 0xB313 # 37 R3 CHR bank indices indexed by (ability + 1)
+const B19_CARD_TILE_SPECS: int = 0xB338 # 37 base tile & flag bytes indexed by (ability + 1)
+const B19_LIVES_NORMAL_PACKET: int = 0xB3A4 # 00 D7 2A 08 07 + 56 tiles
+const B19_LIVES_STAGE_PACKET: int = 0xB3E1 # 00 D7 2A 08 07 + 56 tiles
+const B61_TITLE_NAMETABLE: int = 0xAB5C # HAL-compressed 32x30 nametable + 64 attr bytes
+const B61_TITLE_CHR_INIT: int = 0xAA50 # MMC3 R0..R5 CHR banks for Title Screen
+const B61_TITLE_PALETTES: int = 0xADB8 # 16 BG + 16 SP palette bytes at $ADB8..$ADD7
 const MAX_OAM_SPRITES_PER_FRAME: int = 16
 const MAX_METASPRITE_FRAMES: int = 128
 
@@ -68,6 +80,7 @@ class WorldExtractionResult extends RefCounted:
 	var palettes: Dictionary = {}
 	var stage_start_rooms: Dictionary = {}
 	var metasprites: Dictionary = {}
+	var ui_layouts: Dictionary = {}
 
 
 static func _map_r6(mapper: MMC3Mapper, bank_8k: int) -> void:
@@ -557,8 +570,14 @@ static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
 		actor_id_list.append(int(aid_key))
 	actor_id_list.sort()
 	result.metasprites = extract_metasprite_catalog(mapper, actor_id_list)
+	result.ui_layouts = extract_ui_layouts(mapper, result.palettes)
 
-	result.success = not result.rooms.is_empty() and not result.tilesets.is_empty() and not result.metasprites.is_empty()
+	result.success = (
+		not result.rooms.is_empty()
+		and not result.tilesets.is_empty()
+		and not result.metasprites.is_empty()
+		and not result.ui_layouts.is_empty()
+	)
 	return result
 
 
@@ -703,4 +722,154 @@ static func extract_metasprite_catalog(mapper: MMC3Mapper, actor_ids: Array[int]
 		"actors": actors,
 		"kirby_tables": kirby_tables,
 		"effect_tables": effect_tables,
+	}
+
+
+static func _packed_to_int_array(bytes: PackedByteArray, start_idx: int = 0, count: int = -1) -> Array[int]:
+	var out: Array[int] = []
+	var end_idx: int = bytes.size() if count < 0 else mini(bytes.size(), start_idx + count)
+	for i: int in range(maxi(0, start_idx), end_idx):
+		out.append(int(bytes[i]) & 0xFF)
+	return out
+
+
+static func extract_ui_layouts(mapper: MMC3Mapper, palettes_out: Dictionary) -> Dictionary:
+	_map_r7(mapper, Constants.PRG_BANK_LOADER_TABLES)
+	var stage_res: HALDecompressor.DecompressResult = _decompress_at_a000(
+		mapper,
+		Constants.PRG_BANK_LOADER_TABLES,
+		B19_STAGE_HUD_NAMETABLE,
+		512
+	)
+	var hub_res: HALDecompressor.DecompressResult = _decompress_at_a000(
+		mapper,
+		Constants.PRG_BANK_LOADER_TABLES,
+		B19_HUB_HUD_NAMETABLE,
+		512
+	)
+	if not stage_res.success or stage_res.data.size() < 256:
+		return {}
+	if not hub_res.success or hub_res.data.size() < 256:
+		return {}
+
+	_map_r7(mapper, Constants.PRG_BANK_LOADER_TABLES)
+	var attr_fill: int = mapper.read_prg_byte(B19_HUD_ATTR_FILL_BYTE) & 0xFF
+	var score_label_raw: PackedByteArray = mapper.read_prg_slice(B19_SCORE_LABEL_BYTES, 6)
+	var enemy_label_raw: PackedByteArray = mapper.read_prg_slice(B19_ENEMY_LABEL_BYTES, 6)
+	var lives_normal_raw: PackedByteArray = mapper.read_prg_slice(B19_LIVES_NORMAL_PACKET + 5, 56)
+	var lives_stage_raw: PackedByteArray = mapper.read_prg_slice(B19_LIVES_STAGE_PACKET + 5, 56)
+
+	var card_banks_raw: PackedByteArray = mapper.read_prg_slice(B19_CARD_R3_BANKS, 37)
+	var card_specs_raw: PackedByteArray = mapper.read_prg_slice(B19_CARD_TILE_SPECS, 37)
+	var cards: Array[Dictionary] = []
+	for i: int in range(37):
+		var spec_byte: int = int(card_specs_raw[i]) & 0xFF
+		cards.append({
+			"r3_bank": int(card_banks_raw[i]) & 0xFF,
+			"base_tile": spec_byte & 0x0F,
+			"flag": (spec_byte >> 4) & 0x0F,
+		})
+
+	# Map ReKirby CopyAbility enum -> B19 $B313/$B338 card index (0=Normal, 4=Sword, 1=Fire, 2=Spark, 16=Beam)
+	var ability_card_map: Dictionary = {
+		str(Constants.CopyAbility.NONE): 0,
+		str(Constants.CopyAbility.SWORD): 4,
+		str(Constants.CopyAbility.FIRE): 1,
+		str(Constants.CopyAbility.SPARK): 2,
+		str(Constants.CopyAbility.BEAM): 16,
+	}
+
+	var hud_dict: Dictionary = {
+		"cols": 32,
+		"rows": 8,
+		"stage_nametable": _packed_to_int_array(stage_res.data, 0, 256),
+		"hub_nametable": _packed_to_int_array(hub_res.data, 0, 256),
+		"lives_normal_tiles": _packed_to_int_array(lives_normal_raw),
+		"lives_stage_tiles": _packed_to_int_array(lives_stage_raw),
+		"lives_box_col": 23,
+		"lives_box_row": 0,
+		"lives_box_cols": 8,
+		"lives_box_rows": 7,
+		"score_label_tiles": _packed_to_int_array(score_label_raw),
+		"enemy_label_tiles": _packed_to_int_array(enemy_label_raw),
+		"score_row": 4,
+		"score_label_col": 3,
+		"score_digits_col": 10,
+		"hp_pip_col": 10,
+		"hp_pip_row": 1,
+		"hp_pip_max": 6,
+		"hp_pip_full": [0x1A, 0x1B, 0x1C],
+		"hp_pip_empty": [0x81, 0x98, 0x81],
+		"card_col": 19,
+		"card_row": 1,
+		"card_cols": 4,
+		"card_rows": 5,
+		"chr_r2_anim_banks": [
+			Constants.CHR_BANK_HUD_ANIM_BASE,
+			Constants.CHR_BANK_HUD_ANIM_BASE + 1,
+			Constants.CHR_BANK_HUD_ANIM_BASE + 2,
+			Constants.CHR_BANK_HUD_ANIM_BASE + 3,
+		],
+		"chr_r4_frame": Constants.CHR_BANK_HUD_BG_FRAME,
+		"chr_r5_text": Constants.CHR_BANK_HUD_BG_TEXT,
+		"hud_attr_fill": attr_fill,
+		"cards": cards,
+		"ability_card_map": ability_card_map,
+	}
+
+	# Extract Title Screen (Bank 61 $AB5C nametable + $AA50 CHR banks + $ADB8 palettes)
+	var title_res: HALDecompressor.DecompressResult = _decompress_at_a000(
+		mapper,
+		Constants.PRG_BANK_TITLE_SCREEN,
+		B61_TITLE_NAMETABLE,
+		2048
+	)
+	if not title_res.success or title_res.data.size() < 1024:
+		return {}
+
+	_map_r7(mapper, Constants.PRG_BANK_TITLE_SCREEN)
+	var chr_init_raw: PackedByteArray = mapper.read_prg_slice(B61_TITLE_CHR_INIT, 28)
+	var r2_bank: int = int(chr_init_raw[9]) & 0xFF # $AA59 (0x68 = 104)
+	var r3_bank: int = int(chr_init_raw[14]) & 0xFF # $AA5E (0x69 = 105)
+	var r4_bank: int = int(chr_init_raw[19]) & 0xFF # $AA63 (0x6A = 106)
+	var r5_bank: int = int(chr_init_raw[24]) & 0xFF # $AA68 (0x6B = 107)
+
+	var title_pal_raw: PackedByteArray = mapper.read_prg_slice(B61_TITLE_PALETTES, 32)
+	var title_univ: int = int(title_pal_raw[0]) & 0x3F
+	var title_bg_pals: Array[Array] = []
+	var title_sp_pals: Array[Array] = []
+	for p_idx: int in range(4):
+		var bg_off: int = p_idx * 4
+		var bg_arr: Array[int] = [
+			title_univ,
+			int(title_pal_raw[bg_off + 1]) & 0x3F,
+			int(title_pal_raw[bg_off + 2]) & 0x3F,
+			int(title_pal_raw[bg_off + 3]) & 0x3F,
+		]
+		title_bg_pals.append(bg_arr)
+		palettes_out["title_bg_%d" % p_idx] = bg_arr
+
+		var sp_off: int = 16 + p_idx * 4
+		var sp_arr: Array[int] = [
+			title_univ,
+			int(title_pal_raw[sp_off + 1]) & 0x3F,
+			int(title_pal_raw[sp_off + 2]) & 0x3F,
+			int(title_pal_raw[sp_off + 3]) & 0x3F,
+		]
+		title_sp_pals.append(sp_arr)
+		palettes_out["title_sp_%d" % p_idx] = sp_arr
+
+	var title_dict: Dictionary = {
+		"cols": 32,
+		"rows": 30,
+		"chr_banks": [r2_bank, r3_bank, r4_bank, r5_bank],
+		"nametable": _packed_to_int_array(title_res.data, 0, 960),
+		"attributes": _packed_to_int_array(title_res.data, 960, 64),
+		"palettes_bg": title_bg_pals,
+		"palettes_sp": title_sp_pals,
+	}
+
+	return {
+		"hud": hud_dict,
+		"title_screen": title_dict,
 	}
