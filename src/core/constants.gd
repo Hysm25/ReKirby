@@ -57,13 +57,15 @@ const CHR_BANKS_DIR: String = "user://nes_data/chr_banks"
 const MANIFEST_PATH: String = "user://nes_data/manifest.json"
 const PALETTES_PATH: String = "user://nes_data/palettes.json"
 const WORLD1_DATA_PATH: String = "user://nes_data/world1_data.json"
-const EXTRACTION_FORMAT_VERSION: int = 3
+const AUDIO_DATA_PATH: String = "user://nes_data/audio_data.json"
+const EXTRACTION_FORMAT_VERSION: int = 4
 
 # PRG-ROM MMC3 structural table locations (Kirby's Adventure USA Rev A)
 const PRG_BANK_PALETTE_TABLES: int = 0
 const PRG_BANK_CHR_TABLES: int = 5
 const PRG_BANK_ROOM_TABLES: int = 18
 const PRG_BANK_LOADER_TABLES: int = 19
+const PRG_BANK_AUDIO_ENGINE: int = 29
 const PRG_BANK_HUD_PALETTES: int = 56
 const CHR_BANK_KIRBY_DEFAULT: int = 128
 const CHR_BANK_STAR_EFFECTS: int = 131

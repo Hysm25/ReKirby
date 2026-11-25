@@ -52,28 +52,49 @@ static func decode_1k_bank_image(
 	palette: PackedColorArray = PackedColorArray(),
 	transparent_zero: bool = false
 ) -> Image:
-	var indices: PackedByteArray = decode_1k_bank_indices(chr_bytes, bank_1k_index)
+	var total_pixels: int = Constants.CHR_1K_BANK_SHEET_WIDTH * Constants.CHR_1K_BANK_SHEET_HEIGHT
 	var rgba: PackedByteArray = PackedByteArray()
-	rgba.resize(indices.size() * 4)
+	rgba.resize(total_pixels * 4)
+
+	var bank_offset: int = bank_1k_index * Constants.CHR_BANK_1K_SIZE
+	if bank_offset < 0 or bank_offset + Constants.CHR_BANK_1K_SIZE > chr_bytes.size():
+		return Image.create_from_data(
+			Constants.CHR_1K_BANK_SHEET_WIDTH,
+			Constants.CHR_1K_BANK_SHEET_HEIGHT,
+			false,
+			Image.FORMAT_RGBA8,
+			rgba
+		)
 
 	var use_palette: bool = palette.size() >= 4
-	var levels: PackedInt32Array = PackedInt32Array([0, 85, 170, 255])
+	var lut_r: PackedByteArray = PackedByteArray([0, 85, 170, 255])
+	var lut_g: PackedByteArray = PackedByteArray([0, 85, 170, 255])
+	var lut_b: PackedByteArray = PackedByteArray([0, 85, 170, 255])
+	if use_palette:
+		for c_i: int in range(4):
+			var c: Color = palette[c_i]
+			lut_r[c_i] = clampi(int(round(c.r * 255.0)), 0, 255)
+			lut_g[c_i] = clampi(int(round(c.g * 255.0)), 0, 255)
+			lut_b[c_i] = clampi(int(round(c.b * 255.0)), 0, 255)
 
-	for i: int in range(indices.size()):
-		var color_idx: int = indices[i] & 0x03
-		var dst: int = i * 4
-		if use_palette:
-			var c: Color = palette[color_idx]
-			rgba[dst] = clampi(int(round(c.r * 255.0)), 0, 255)
-			rgba[dst + 1] = clampi(int(round(c.g * 255.0)), 0, 255)
-			rgba[dst + 2] = clampi(int(round(c.b * 255.0)), 0, 255)
-			rgba[dst + 3] = 0 if (transparent_zero and color_idx == 0) else 255
-		else:
-			var shade: int = levels[color_idx]
-			rgba[dst] = shade
-			rgba[dst + 1] = shade
-			rgba[dst + 2] = shade
-			rgba[dst + 3] = 0 if (transparent_zero and color_idx == 0) else 255
+	var alpha_zero: int = 0 if transparent_zero else 255
+	var sheet_w: int = Constants.CHR_1K_BANK_SHEET_WIDTH
+	for tile_idx: int in range(Constants.CHR_TILES_PER_1K_BANK):
+		var tile_off: int = bank_offset + tile_idx * Constants.CHR_BYTES_PER_TILE
+		var dst_x0: int = (tile_idx % 8) * Constants.TILE_SIZE
+		var dst_y0: int = (tile_idx / 8) * Constants.TILE_SIZE
+		for py: int in range(Constants.TILE_SIZE):
+			var p0: int = chr_bytes[tile_off + py]
+			var p1: int = chr_bytes[tile_off + py + 8]
+			var dst_row: int = ((dst_y0 + py) * sheet_w + dst_x0) * 4
+			for px: int in range(Constants.TILE_SIZE):
+				var bit: int = 7 - px
+				var color_idx: int = (((p1 >> bit) & 1) << 1) | ((p0 >> bit) & 1)
+				var dst: int = dst_row + px * 4
+				rgba[dst] = lut_r[color_idx]
+				rgba[dst + 1] = lut_g[color_idx]
+				rgba[dst + 2] = lut_b[color_idx]
+				rgba[dst + 3] = alpha_zero if color_idx == 0 else 255
 
 	return Image.create_from_data(
 		Constants.CHR_1K_BANK_SHEET_WIDTH,

@@ -74,18 +74,24 @@ func load_from_user_data(
 	manifest_path: String = Constants.MANIFEST_PATH,
 	chr_banks_dir: String = Constants.CHR_BANKS_DIR,
 	palettes_path: String = Constants.PALETTES_PATH,
-	world1_path: String = ""
+	world1_path: String = "",
+	audio_path: String = ""
 ) -> bool:
 	clear()
 	var resolved_world1_path: String = world1_path
 	if resolved_world1_path.is_empty():
 		resolved_world1_path = manifest_path.get_base_dir().path_join("world1_data.json")
+	var resolved_audio_path: String = audio_path
+	if resolved_audio_path.is_empty():
+		resolved_audio_path = manifest_path.get_base_dir().path_join("audio_data.json")
 
 	if not FileAccess.file_exists(manifest_path):
 		return false
 	if not FileAccess.file_exists(palettes_path):
 		return false
 	if not FileAccess.file_exists(resolved_world1_path):
+		return false
+	if not FileAccess.file_exists(resolved_audio_path):
 		return false
 
 	var manifest_text: String = FileAccess.get_file_as_string(manifest_path)
@@ -118,6 +124,14 @@ func load_from_user_data(
 	var world1_data: Dictionary = world1_parsed as Dictionary
 	if int(world1_data.get("format_version", 0)) != Constants.EXTRACTION_FORMAT_VERSION:
 		return false
+
+	var audio_text: String = FileAccess.get_file_as_string(resolved_audio_path)
+	var audio_parsed: Variant = JSON.parse_string(audio_text)
+	if not (audio_parsed is Dictionary):
+		return false
+	var audio_data: Dictionary = audio_parsed as Dictionary
+	if int(audio_data.get("format_version", 0)) != Constants.EXTRACTION_FORMAT_VERSION:
+		return false
 	var tilesets_var: Variant = world1_data.get("tilesets", {})
 	var rooms_var: Variant = world1_data.get("rooms", {})
 	if not (tilesets_var is Dictionary) or not (rooms_var is Dictionary):
@@ -147,7 +161,7 @@ func load_from_user_data(
 			var bank_1k_img: Image = sheet_img.get_region(slice_rect)
 			loaded_1k_images.append(bank_1k_img)
 
-	populate_from_extraction(manifest, loaded_1k_images, palettes, tilesets, rooms, {})
+	populate_from_extraction(manifest, loaded_1k_images, palettes, tilesets, rooms, audio_data)
 	return _initialized
 
 
@@ -260,3 +274,60 @@ func get_metatile(tileset_id: int, metatile_id: int) -> Dictionary:
 	if metatile_id < 0 or metatile_id >= mts.size():
 		return {}
 	return (mts[metatile_id] as Dictionary).duplicate(true)
+
+
+func get_audio_tables() -> Dictionary:
+	if not require_initialized():
+		return {}
+	return _audio_tables
+
+
+func has_music_track(track_id: int) -> bool:
+	if not _initialized:
+		return false
+	var tracks_var: Variant = _audio_tables.get("tracks", {})
+	if not (tracks_var is Dictionary):
+		return false
+	return (tracks_var as Dictionary).has(str(track_id))
+
+
+func get_music_track(track_id: int) -> Dictionary:
+	if not has_music_track(track_id):
+		return {}
+	var tracks_dict: Dictionary = _audio_tables.get("tracks", {}) as Dictionary
+	return (tracks_dict[str(track_id)] as Dictionary).duplicate(true)
+
+
+func has_sfx_track(sfx_id: int) -> bool:
+	if not _initialized:
+		return false
+	var sfx_var: Variant = _audio_tables.get("sfx", {})
+	if not (sfx_var is Dictionary):
+		return false
+	return (sfx_var as Dictionary).has(str(sfx_id))
+
+
+func get_sfx_track(sfx_id: int) -> Dictionary:
+	if not has_sfx_track(sfx_id):
+		return {}
+	var sfx_dict: Dictionary = _audio_tables.get("sfx", {}) as Dictionary
+	return (sfx_dict[str(sfx_id)] as Dictionary).duplicate(true)
+
+
+func get_dpcm_sample_bytes(addr_reg: int, len_reg: int) -> PackedByteArray:
+	if not require_initialized():
+		return PackedByteArray()
+	var dpcm_var: Variant = _audio_tables.get("dpcm_samples", {})
+	if not (dpcm_var is Dictionary):
+		return PackedByteArray()
+	var key: String = "%d_%d" % [addr_reg & 0xFF, len_reg & 0xFF]
+	var dpcm_dict: Dictionary = dpcm_var as Dictionary
+	if not dpcm_dict.has(key):
+		return PackedByteArray()
+	var entry: Dictionary = dpcm_dict[key] as Dictionary
+	var raw_arr: Array = entry.get("bytes", []) as Array
+	var out: PackedByteArray = PackedByteArray()
+	out.resize(raw_arr.size())
+	for i: int in range(raw_arr.size()):
+		out[i] = int(raw_arr[i]) & 0xFF
+	return out

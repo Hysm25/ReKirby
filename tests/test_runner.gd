@@ -4,6 +4,7 @@ extends SceneTree
 const TEST_SUITES: Array[String] = [
 	"res://tests/test_importer.gd",
 	"res://tests/test_physics.gd",
+	"res://tests/test_audio.gd",
 ]
 
 
@@ -29,7 +30,9 @@ func _initialize() -> void:
 			total_failed += 1
 			continue
 
+		var t0: int = Time.get_ticks_msec()
 		var report_variant: Variant = suite_instance.call("run_tests")
+		var elapsed_ms: int = Time.get_ticks_msec() - t0
 		if not (report_variant is Dictionary):
 			printerr("[FAIL] Invalid report returned from %s" % suite_path)
 			total_failed += 1
@@ -40,7 +43,7 @@ func _initialize() -> void:
 		var failed: int = int(report.get("failed", 0))
 		total_passed += passed
 		total_failed += failed
-		print("[SUITE] %s -> passed=%d failed=%d" % [suite_path, passed, failed])
+		print("[SUITE] %s -> passed=%d failed=%d (%d ms)" % [suite_path, passed, failed, elapsed_ms])
 
 	print("----------------------------------------")
 	print("TOTAL: passed=%d failed=%d" % [total_passed, total_failed])

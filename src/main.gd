@@ -7,6 +7,8 @@ const LevelMap = preload("res://src/game/level_map.gd")
 const KirbyController = preload("res://src/game/kirby_controller.gd")
 const HUDRenderer = preload("res://src/game/hud_renderer.gd")
 const VirtualGamepad = preload("res://src/game/virtual_gamepad.gd")
+const APUEngine = preload("res://src/audio/apu_engine.gd")
+const MusicPlayer = preload("res://src/audio/music_player.gd")
 
 const DEFAULT_START_ROOM_ID: int = 43
 
@@ -20,6 +22,8 @@ var _level_map: LevelMap = null
 var _kirby: KirbyController = null
 var _hud_renderer: HUDRenderer = null
 var _virtual_gamepad: VirtualGamepad = null
+var _apu_engine: APUEngine = null
+var _music_player: MusicPlayer = null
 var _status_label: Label = null
 var _camera_offset: Vector2 = Vector2.ZERO
 
@@ -40,6 +44,10 @@ func _physics_process(_delta: float) -> void:
 		_update_camera_scroll()
 		if _hud_renderer != null:
 			_hud_renderer.refresh()
+	if _music_player != null:
+		_music_player.step_frame()
+	if _apu_engine != null:
+		_apu_engine.step_audio_frame()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -158,6 +166,13 @@ func _build_gameplay_panel() -> void:
 	_virtual_gamepad = VirtualGamepad.new()
 	add_child(_virtual_gamepad)
 
+	# 2A03 5-channel APU synthesizer + PRG-ROM music/SFX sequencer
+	_apu_engine = APUEngine.new()
+	add_child(_apu_engine)
+	_music_player = MusicPlayer.new()
+	add_child(_music_player)
+	_music_player.setup(_apu_engine)
+
 
 func _attempt_rom_boot() -> void:
 	var loaded_cached: bool = ContentRegistry.load_from_user_data()
@@ -205,6 +220,9 @@ func _enter_ready_state() -> void:
 		set_physics_process(true)
 		if _hud_renderer != null:
 			_hud_renderer.set_status(_kirby.hp, _kirby.max_hp, 4, 0, _kirby.copy_ability)
+		if _music_player != null:
+			_music_player.setup(_apu_engine)
+			EventBus.bgm_requested.emit(0)
 		EventBus.room_changed.emit(1, 1, start_room)
 		EventBus.game_state_changed.emit(_current_state, prev)
 	else:

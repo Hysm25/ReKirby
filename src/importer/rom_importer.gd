@@ -7,6 +7,7 @@ const Constants = preload("res://src/core/constants.gd")
 const ROMValidator = preload("res://src/importer/rom_validator.gd")
 const CHRExtractor = preload("res://src/importer/chr_extractor.gd")
 const WorldExtractor = preload("res://src/importer/world_extractor.gd")
+const AudioExtractor = preload("res://src/importer/audio_extractor.gd")
 const MAX_DIR_ENTRIES: int = 1024
 
 
@@ -100,6 +101,12 @@ static func import_rom_file(
 		EventBus.rom_extraction_failed.emit(res.error)
 		return res
 
+	var audio_res: AudioExtractor.AudioExtractionResult = AudioExtractor.extract_audio(report.prg_data)
+	if not audio_res.success:
+		res.error = "Audio table extraction failed: %s" % audio_res.error
+		EventBus.rom_extraction_failed.emit(res.error)
+		return res
+
 	var palettes: Dictionary = world1_res.palettes
 	var palettes_path: String = user_data_dir.path_join("palettes.json")
 	var pal_file: FileAccess = FileAccess.open(palettes_path, FileAccess.WRITE)
@@ -109,6 +116,16 @@ static func import_rom_file(
 		return res
 	pal_file.store_string(JSON.stringify(palettes, "\t"))
 	pal_file.close()
+
+	var audio_payload: Dictionary = audio_res.to_dict()
+	var audio_path: String = user_data_dir.path_join("audio_data.json")
+	var audio_file: FileAccess = FileAccess.open(audio_path, FileAccess.WRITE)
+	if audio_file == null:
+		res.error = "Failed to write %s." % audio_path
+		EventBus.rom_extraction_failed.emit(res.error)
+		return res
+	audio_file.store_string(JSON.stringify(audio_payload))
+	audio_file.close()
 
 	var world1_payload: Dictionary = {
 		"format_version": Constants.EXTRACTION_FORMAT_VERSION,
@@ -136,6 +153,9 @@ static func import_rom_file(
 		"chr_banks_1k": chr_1k_images.size(),
 		"world1_room_count": world1_res.rooms.size(),
 		"world1_tileset_count": world1_res.tilesets.size(),
+		"audio_track_count": audio_res.tracks.size(),
+		"audio_sfx_count": audio_res.sfx.size(),
+		"audio_dpcm_count": audio_res.dpcm_samples.size(),
 		"full_crc32": report.full_crc32,
 		"prg_crc32": report.prg_crc32,
 		"chr_crc32": report.chr_crc32,
@@ -158,7 +178,7 @@ static func import_rom_file(
 		palettes,
 		world1_res.tilesets,
 		world1_res.rooms,
-		{}
+		audio_payload
 	)
 	if not ContentRegistry.is_ready():
 		res.error = "ContentRegistry failed to populate after ROM extraction."

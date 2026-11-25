@@ -5,8 +5,8 @@
 
 ---
 
-## Current Workspace Snapshot (Phase 2 Complete — Core Physics, Copy Abilities, HUD & Touch Overlay)
-- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM & World 1 PRG-ROM Extraction Pipeline (`src/importer/`), Mandatory ROM Setup Guard + Playable World 1 Room Boot (`src/main.gd`, `src/main.tscn`), Phase 2 `LevelMap`, `KirbyController`, Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`), Scanline IRQ Split `HUDRenderer`, and `VirtualGamepad` (`src/game/`), plus headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`, `tests/test_physics.gd`) implemented and passing 100% (`183/183`).
+## Current Workspace Snapshot (Phase 3 Complete — 2A03 APU 5-Channel Audio & PRG-ROM Music/SFX)
+- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM, World 1, and Audio PRG-ROM Extraction Pipeline (`src/importer/` including `AudioExtractor`), Mandatory ROM Setup Guard + Playable World 1 Room Boot (`src/main.gd`, `src/main.tscn`), Phase 2 `LevelMap`, `KirbyController`, Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`), Scanline IRQ Split `HUDRenderer`, and `VirtualGamepad` (`src/game/`), Phase 3 2A03 5-channel `APUEngine` & `MusicPlayer` (`src/audio/`), and headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`, `tests/test_physics.gd`, `tests/test_audio.gd`) implemented and passing 100% (`222/222`).
 - **Completed So Far**:
   - [x] Audited workspace directory, relocated local ROM into git-ignored `rom/`, and verified `rom/*.nes` exclusion.
   - [x] Established clean-room `.gitignore` and `AGENTS.md` execution blueprint.
@@ -44,14 +44,14 @@
 - [x] **Mobile & Desktop Controls (`src/game/virtual_gamepad.gd`)**: Keyboard, gamepad, and Android touch overlay.
 - [x] **Verification (`tests/test_physics.gd`)**: Slope heightmap, inhale capture, star spit collisions, HUD/touch routing, and all 4 Copy Ability hitboxes (`88/88` passing; `183/183` total).
 
-### Phase 3: 2A03 APU 5-Channel Audio Engine (Pending)
-- [ ] **APU Synthesizer (`src/audio/apu_engine.gd`)**:
-  - [ ] Pulse 1 & Pulse 2 (4 duty cycles, sweep, envelope)
-  - [ ] Triangle (32-step quantized wave + linear counter)
-  - [ ] Noise (15-bit LFSR standard & periodic modes)
-  - [ ] DMC (1-bit DPCM sample channel with NTSC rate table)
-- [ ] **PRG-ROM Music & SFX Interpreter (`src/audio/music_player.gd`)**: Extract and play authentic Kirby's Adventure BGM tracks & SFX with channel priority overrides.
-- [ ] **Verification (`tests/test_audio.gd`)**: Non-clipping mix headroom, DPCM decoding, and 60 TPS audio stream stability.
+### Phase 3: 2A03 APU 5-Channel Audio Engine (Completed)
+- [x] **APU Synthesizer (`src/audio/apu_engine.gd`)**:
+  - [x] Pulse 1 & Pulse 2 (4 duty cycles, sweep, envelope)
+  - [x] Triangle (32-step quantized wave + linear counter)
+  - [x] Noise (15-bit LFSR standard & periodic modes)
+  - [x] DMC (1-bit DPCM sample channel with NTSC rate table)
+- [x] **PRG-ROM Music & SFX Interpreter (`src/audio/music_player.gd`)**: Extract via `AudioExtractor` (`src/importer/audio_extractor.gd`) and play authentic Kirby's Adventure BGM tracks & SFX with channel priority overrides.
+- [x] **Verification (`tests/test_audio.gd`)**: Non-clipping mix headroom, DPCM decoding, 93-step periodic noise, and 60 TPS audio stream stability (`39/39` passing; `222/222` total).
 
 ### Phase 4: World 1 Vegetable Valley & Whispy Woods Boss Vertical Slice (Pending)
 - [ ] **World 1 Enemies (`src/game/entities/enemy_base.gd`)**: Waddle Dee, Waddle Doo (Beam), Poppy Bros. Jr., Blade Knight (Sword), Hot Head (Fire), Sparky (Spark), Bronto Burt.
