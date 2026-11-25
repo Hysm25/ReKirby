@@ -600,7 +600,7 @@ func load_world_room(room_id: int, spawn_pos: Vector2, preserve_status: bool = t
 		var ty: int = int(ent.get("tile_y", 0))
 		var e_pos: Vector2 = _level_map.screen_tile_to_pixel(scr, tx, ty) + Vector2(8.0, 16.0)
 		var enemy: EnemyBase = EnemyBase.new()
-		enemy.setup(e_type, e_pos, _level_map, -1, sp_chr_bank)
+		enemy.setup(e_type, e_pos, _level_map, -1, sp_chr_bank, actor_id)
 		_enemies_layer.add_child(enemy)
 		_enemies.append(enemy)
 

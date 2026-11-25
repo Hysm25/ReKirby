@@ -9,6 +9,7 @@ const AbilitySword = preload("res://src/game/abilities/ability_sword.gd")
 const HUDRenderer = preload("res://src/game/hud_renderer.gd")
 const VirtualGamepad = preload("res://src/game/virtual_gamepad.gd")
 const ROMImporter = preload("res://src/importer/rom_importer.gd")
+const EnemyBase = preload("res://src/game/entities/enemy_base.gd")
 const MAX_CLEANUP_ENTRIES: int = 2048
 
 var _passed: int = 0
@@ -727,6 +728,19 @@ func _test_live_rom_stage_1_1_if_present() -> void:
 				if not r_img.get_pixel(px, py).is_equal_approx(l_img.get_pixel(15 - px, py)):
 					mirror_mismatches += 1
 		_assert_eq_int(mirror_mismatches, 0, "8x16 OAM facing=-1 mirrors facing=+1 across 16x16 sprite")
+
+	# Verify multi-tile ROM metasprite composition & dynamic R0/R1 CHR bank assembly (Track A)
+	var room43_pals: Array[PackedColorArray] = ContentRegistry.get_room_sprite_palettes(43)
+	var k_stand_built: Dictionary = ContentRegistry.build_rom_metasprite(ContentRegistry.get_kirby_metasprite_frame("default", 0), room43_pals)
+	var k_hover_built: Dictionary = ContentRegistry.build_rom_metasprite(ContentRegistry.get_kirby_metasprite_frame("default", 80), room43_pals)
+	var k_slide_built: Dictionary = ContentRegistry.build_rom_metasprite(ContentRegistry.get_kirby_metasprite_frame("default", 56), room43_pals)
+	_assert_true(not k_stand_built.is_empty() and int(k_stand_built.get("width", 0)) == 16 and int(k_stand_built.get("height", 0)) == 16, "ROM Kirby stand metasprite composes 16x16")
+	_assert_true(not k_hover_built.is_empty() and int(k_hover_built.get("width", 0)) == 24 and int(k_hover_built.get("height", 0)) == 32, "ROM Kirby hover metasprite composes 24x32 from 6 sprites")
+	_assert_true(not k_slide_built.is_empty() and int(k_slide_built.get("width", 0)) >= 24, "ROM Kirby slide metasprite composes >=24px width")
+	var rom_bronto: EnemyBase = EnemyBase.new()
+	rom_bronto.setup(EnemyBase.EnemyType.BRONTO_BURT, Vector2(64.0, 96.0), lvl, -1, 154, 41)
+	_assert_true(rom_bronto._frames_left.size() >= 2 and rom_bronto._frames_right.size() >= 2, "Bronto Burt builds left/right ROM metasprite frames from actor 41")
+	rom_bronto.free()
 
 	# Load Stage 1-2 Room 47 (contains water/slopes) and verify HUDRenderer renders 256x48 ROM texture without red glyph boxes
 	_assert_true(lvl.load_room(47), "LevelMap loads extracted Stage 1-2 Room 47")

@@ -345,6 +345,27 @@ func _test_live_rom_ingestion_if_present() -> void:
 	if hud_bg0.size() == 4:
 		_assert_eq_int(hud_bg0[1], 0x35, "HUD BG0 panel color is light pink 0x35")
 
+	# Verify PRG-ROM OAM metasprites & R0..R5 bank catalog extraction (Track A)
+	var k_stand: Dictionary = ContentRegistry.get_kirby_metasprite_frame("default", 0)
+	_assert_eq_int(int(k_stand.get("r0_bank", -1)), 128, "Kirby stand frame uses R0 CHR bank 128 (0x80)")
+	var k_stand_sprs: Array = k_stand.get("sprites", []) as Array
+	_assert_eq_int(k_stand_sprs.size(), 2, "Kirby stand frame defines 2 x 8x16 OAM sprites")
+	var k_hover: Dictionary = ContentRegistry.get_kirby_metasprite_frame("default", 80)
+	_assert_eq_int(int(k_hover.get("r0_bank", -1)), 130, "Kirby hover frame uses R0 CHR bank 130 (0x82)")
+	_assert_eq_int((k_hover.get("sprites", []) as Array).size(), 6, "Kirby hover frame defines 6 x 8x16 OAM sprites (24x32)")
+	var star0: Dictionary = ContentRegistry.get_effect_metasprite_frame("star", 0)
+	_assert_eq_int((star0.get("sprites", []) as Array).size(), 2, "Star Spit frame 0 defines 2 x 8x16 OAM sprites")
+	for core_aid: int in [14, 15, 16, 17, 18, 41, 56]:
+		var a_frames: Array = ContentRegistry.get_actor_metasprite_frames(core_aid)
+		_assert_true(a_frames.size() >= 4, "World 1 actor_id %d extracted >= 4 ROM metasprite frames (got %d)" % [core_aid, a_frames.size()])
+	var bronto_frames: Array = ContentRegistry.get_actor_metasprite_frames(41)
+	if bronto_frames.size() >= 2:
+		var br_sprs: Array = (bronto_frames[1] as Dictionary).get("sprites", []) as Array
+		if not br_sprs.is_empty():
+			var br0: Dictionary = br_sprs[0] as Dictionary
+			_assert_true(int(br0.get("tile", 0)) >= 0xE0, "Bronto Burt uses upper 1KB CHR bank R1+1 (tile=0x%02X)" % int(br0.get("tile", 0)))
+			_assert_eq_int(int(br0.get("pal", -1)), 3, "Bronto Burt uses SP3 sprite palette")
+
 	# Clean up temporary test extraction directory
 	_cleanup_dir_recursive(test_user_dir)
 

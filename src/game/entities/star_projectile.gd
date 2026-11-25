@@ -303,30 +303,34 @@ func _step_bouncing_body(grav: float, bounce_vy: float, bounce_walls: bool) -> v
 func _refresh_rom_textures() -> void:
 	if not ContentRegistry.is_ready():
 		return
+	var room_id: int = _level_map.get_room_id() if _level_map != null else -1
+	var room_pals: Array[PackedColorArray] = ContentRegistry.get_room_sprite_palettes(room_id)
 	var pal_key: String = "hud_sp_star"
-	if _level_map != null:
-		var room_pal_key: String = "room_%d_sp_1" % _level_map.get_room_id()
-		if not ContentRegistry.get_palette_indices(room_pal_key).is_empty():
-			pal_key = room_pal_key
+	if room_id >= 0 and not ContentRegistry.get_palette_indices("room_%d_sp_1" % room_id).is_empty():
+		pal_key = "room_%d_sp_1" % room_id
 
 	match kind:
 		Kind.STAR_SPIT, Kind.ABILITY_STAR, Kind.GOAL_STAR_ROD:
-			_tex_a = ContentRegistry.build_rom_oam_8x16(
-				Constants.CHR_BANK_STAR_EFFECTS,
-				Vector2i(16, 17), Vector2i(18, 19),
-				pal_key
-			)
-			_tex_b = ContentRegistry.build_rom_oam_8x16(
-				Constants.CHR_BANK_STAR_EFFECTS,
-				Vector2i(20, 21), Vector2i(22, 23),
-				pal_key
-			)
+			var star0: Dictionary = ContentRegistry.get_effect_metasprite_frame("star", 0)
+			var star1: Dictionary = ContentRegistry.get_effect_metasprite_frame("star", 1)
+			if not star0.is_empty():
+				var b0: Dictionary = ContentRegistry.build_rom_metasprite(star0, room_pals, Constants.CHR_BANK_KIRBY_DEFAULT, 154, Constants.CHR_BANK_STAR_EFFECTS)
+				var b1: Dictionary = ContentRegistry.build_rom_metasprite(star1, room_pals, Constants.CHR_BANK_KIRBY_DEFAULT, 154, Constants.CHR_BANK_STAR_EFFECTS) if not star1.is_empty() else b0
+				if not b0.is_empty():
+					_tex_a = b0["texture"] as ImageTexture
+					_tex_b = (b1["texture"] as ImageTexture) if not b1.is_empty() else _tex_a
+					return
+			_tex_a = ContentRegistry.build_rom_oam_8x16(Constants.CHR_BANK_STAR_EFFECTS, Vector2i(18, 19), Vector2i(22, 23), pal_key)
+			_tex_b = ContentRegistry.build_rom_oam_8x16(Constants.CHR_BANK_STAR_EFFECTS, Vector2i(18, 19), Vector2i(22, 23), pal_key, false, false, false, -1)
 		Kind.AIR_PUFF, Kind.WATER_GUN, Kind.BOSS_AIR_PUFF:
-			_tex_a = ContentRegistry.build_rom_oam_8x16(
-				Constants.CHR_BANK_STAR_EFFECTS,
-				Vector2i(8, 9), Vector2i(10, 11),
-				pal_key
-			)
+			var puff0: Dictionary = ContentRegistry.get_effect_metasprite_frame("air_puff", 0)
+			if not puff0.is_empty():
+				var bp: Dictionary = ContentRegistry.build_rom_metasprite(puff0, room_pals, Constants.CHR_BANK_KIRBY_DEFAULT, 154, Constants.CHR_BANK_STAR_EFFECTS)
+				if not bp.is_empty():
+					_tex_a = bp["texture"] as ImageTexture
+					_tex_b = _tex_a
+					return
+			_tex_a = ContentRegistry.build_rom_oam_8x16(Constants.CHR_BANK_STAR_EFFECTS, Vector2i(4, 5), Vector2i(4, 5), pal_key, false, true)
 			_tex_b = _tex_a
 		Kind.APPLE:
 			var apple_pal: String = "hud_sp_fire"

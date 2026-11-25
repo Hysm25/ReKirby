@@ -48,9 +48,15 @@ const B5_CHR_R5_TABLE: int = 0x9618
 const B19_ACTOR_ID_TABLE: int = 0xA9D2
 const B19_ACTOR_SUBTYPE_TABLE: int = 0xAAD2
 const B19_BG3_OVERRIDE_ROOMS: int = 0xA766
+const B24_ACTOR_SCRIPT_LO: int = 0xA0A7
+const B24_ACTOR_SCRIPT_HI: int = 0xA117
+const B24_ACTOR_SCRIPT_BANK: int = 0xA187
+const PRG_BANK_ACTOR_INDEX: int = 24
 const B56_HUD_PALETTE_ADDR: int = 0xB1CA # 4 HUD BG palettes (0..3) at $B1CA..$B1D9
 const B56_KIRBY_PALETTE_ADDR: int = 0xB1DA # Kirby default SP0 palette [0F, 35, 25, 0F]
 const B56_SP_EFFECT_PALETTE_ADDR: int = 0xB1DE # Fire/Star/Beam sprite palettes at $B1DE..$B1E9
+const MAX_OAM_SPRITES_PER_FRAME: int = 16
+const MAX_METASPRITE_FRAMES: int = 128
 
 
 class WorldExtractionResult extends RefCounted:
@@ -61,6 +67,7 @@ class WorldExtractionResult extends RefCounted:
 	var rooms: Dictionary = {}
 	var palettes: Dictionary = {}
 	var stage_start_rooms: Dictionary = {}
+	var metasprites: Dictionary = {}
 
 
 static func _map_r6(mapper: MMC3Mapper, bank_8k: int) -> void:
@@ -486,6 +493,7 @@ static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
 	var queue: Array[int] = [Constants.WORLD1_HUB_ROOM_ID]
 	var visited: Dictionary = {}
 	var needed_tilesets: Dictionary = {}
+	var seen_actors: Dictionary = {}
 	var iterations: int = 0
 
 	while not queue.is_empty() and iterations < MAX_WORLD1_ROOMS:
@@ -503,6 +511,12 @@ static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
 		result.rooms[rid] = room_data
 		var ts_id: int = int(room_data["tileset_id"])
 		needed_tilesets[ts_id] = true
+		var r_ents: Array = room_data.get("entities", []) as Array
+		for ent_var: Variant in r_ents:
+			var ent_d: Dictionary = ent_var as Dictionary
+			var aid: int = int(ent_d.get("actor_id", -1))
+			if aid >= 0:
+				seen_actors[aid] = true
 
 		# Register room palettes in global palette repository
 		var r_pals: Dictionary = room_data["palettes"] as Dictionary
@@ -536,5 +550,157 @@ static func extract_world1(prg_data: PackedByteArray) -> WorldExtractionResult:
 			return result
 		result.tilesets[ts_id] = ts_data
 
-	result.success = not result.rooms.is_empty() and not result.tilesets.is_empty()
+	var actor_id_list: Array[int] = []
+	for core_aid: int in [5, 6, 14, 15, 16, 17, 18, 41, 56]:
+		seen_actors[core_aid] = true
+	for aid_key: Variant in seen_actors.keys():
+		actor_id_list.append(int(aid_key))
+	actor_id_list.sort()
+	result.metasprites = extract_metasprite_catalog(mapper, actor_id_list)
+
+	result.success = not result.rooms.is_empty() and not result.tilesets.is_empty() and not result.metasprites.is_empty()
 	return result
+
+
+static func _signed_byte(val: int) -> int:
+	var b: int = val & 0xFF
+	return b - 256 if b >= 128 else b
+
+
+static func _parse_oam_frame_table(
+	mapper: MMC3Mapper,
+	bank_8k: int,
+	table_addr: int,
+	has_r0_prefix: bool,
+	max_frames: int = MAX_METASPRITE_FRAMES
+) -> Array[Dictionary]:
+	var frames: Array[Dictionary] = []
+	if bank_8k <= 0 or bank_8k >= Constants.EXPECTED_PRG_BANKS_8K:
+		return frames
+	var win_base: int = 0xA000 if table_addr >= 0xA000 else 0x8000
+	if table_addr < win_base or table_addr >= win_base + Constants.PRG_BANK_8K_SIZE:
+		return frames
+	if win_base == 0x8000:
+		_map_r6(mapper, bank_8k)
+	else:
+		_map_r7(mapper, bank_8k)
+
+	var min_data_ptr: int = win_base + Constants.PRG_BANK_8K_SIZE
+	var limit: int = mini(max_frames, MAX_METASPRITE_FRAMES)
+	for f_idx: int in range(limit):
+		var ptr_addr: int = table_addr + f_idx * 2
+		if ptr_addr >= min_data_ptr or ptr_addr + 1 >= win_base + Constants.PRG_BANK_8K_SIZE:
+			break
+		var frame_ptr: int = mapper.read_prg_byte(ptr_addr) | (mapper.read_prg_byte(ptr_addr + 1) << 8)
+		if frame_ptr < win_base or frame_ptr >= win_base + Constants.PRG_BANK_8K_SIZE - 5:
+			break
+		if frame_ptr > table_addr and frame_ptr < min_data_ptr:
+			min_data_ptr = frame_ptr
+
+		var cur: int = frame_ptr
+		var r0_bank: int = -1
+		if has_r0_prefix:
+			r0_bank = mapper.read_prg_byte(cur)
+			cur += 1
+		var count: int = mapper.read_prg_byte(cur)
+		cur += 1
+		if count <= 0 or count > MAX_OAM_SPRITES_PER_FRAME:
+			break
+		if cur + count * 4 > win_base + Constants.PRG_BANK_8K_SIZE:
+			break
+
+		var sprites: Array[Dictionary] = []
+		sprites.resize(count)
+		for s_idx: int in range(count):
+			var base_s: int = cur + s_idx * 4
+			var dx: int = _signed_byte(mapper.read_prg_byte(base_s))
+			var dy: int = _signed_byte(mapper.read_prg_byte(base_s + 1))
+			var tile: int = mapper.read_prg_byte(base_s + 2)
+			var attr: int = mapper.read_prg_byte(base_s + 3)
+			sprites[s_idx] = {
+				"dx": dx,
+				"dy": dy,
+				"tile": tile,
+				"attr": attr,
+				"pal": attr & 0x03,
+				"flip_h": (attr & 0x40) != 0,
+				"flip_v": (attr & 0x80) != 0,
+			}
+
+		frames.append({
+			"ptr": frame_ptr,
+			"r0_bank": r0_bank,
+			"sprites": sprites,
+		})
+	return frames
+
+
+static func _extract_actor_metasprite_entry(mapper: MMC3Mapper, actor_id: int) -> Dictionary:
+	if actor_id < 0 or actor_id >= 112:
+		return {}
+	_map_r7(mapper, PRG_BANK_ACTOR_INDEX)
+	var sc_lo: int = mapper.read_prg_byte(B24_ACTOR_SCRIPT_LO + actor_id)
+	var sc_hi: int = mapper.read_prg_byte(B24_ACTOR_SCRIPT_HI + actor_id)
+	var sc_bank: int = mapper.read_prg_byte(B24_ACTOR_SCRIPT_BANK + actor_id)
+	var sc_addr: int = sc_lo | (sc_hi << 8)
+	if sc_bank <= 0 or sc_bank >= Constants.EXPECTED_PRG_BANKS_8K or sc_addr < 0xA000 or sc_addr >= 0xBFFF:
+		return {}
+
+	_map_r7(mapper, sc_bank)
+	var scan_len: int = mini(160, 0xC000 - sc_addr - 4)
+	var slice: PackedByteArray = mapper.read_prg_slice(sc_addr, scan_len)
+	for i: int in range(maxi(0, slice.size() - 4)):
+		if slice[i] == 0x1A:
+			var tbl_addr: int = slice[i + 1] | (slice[i + 2] << 8)
+			var tbl_bank: int = slice[i + 3]
+			if tbl_addr >= 0x8000 and tbl_addr < 0xC000 and tbl_bank >= 1 and tbl_bank < Constants.EXPECTED_PRG_BANKS_8K:
+				var has_r0: bool = false
+				for j: int in range(maxi(0, i - 16), mini(slice.size() - 2, i + 16)):
+					if slice[j] == 0x20 and slice[j + 1] == 0xAA and slice[j + 2] == 0xDD:
+						has_r0 = true
+						break
+				var frames: Array[Dictionary] = _parse_oam_frame_table(mapper, tbl_bank, tbl_addr, has_r0, 64)
+				if not frames.is_empty():
+					return {
+						"actor_id": actor_id,
+						"script_bank": sc_bank,
+						"script_addr": sc_addr,
+						"table_bank": tbl_bank,
+						"table_addr": tbl_addr,
+						"has_r0_prefix": has_r0,
+						"frames": frames,
+					}
+	return {}
+
+
+static func extract_metasprite_catalog(mapper: MMC3Mapper, actor_ids: Array[int]) -> Dictionary:
+	var actors: Dictionary = {}
+	for aid: int in actor_ids:
+		var entry: Dictionary = _extract_actor_metasprite_entry(mapper, aid)
+		if not entry.is_empty():
+			actors[str(aid)] = entry
+
+	var kirby_tables: Dictionary = {
+		"default": _parse_oam_frame_table(mapper, 26, 0x8000, true, 128),
+		"hover_wide": _parse_oam_frame_table(mapper, 26, 0x8846, true, 32),
+		"hat_walk": _parse_oam_frame_table(mapper, 26, 0x8EE6, true, 32),
+		"sword": _parse_oam_frame_table(mapper, 27, 0x8000, true, 64),
+		"beam": _parse_oam_frame_table(mapper, 27, 0x88F2, true, 32),
+		"fire": _parse_oam_frame_table(mapper, 27, 0x9320, true, 32),
+		"somersault": _parse_oam_frame_table(mapper, 27, 0x9CAE, true, 16),
+		"spark_swim": _parse_oam_frame_table(mapper, 28, 0x8216, true, 32),
+	}
+
+	var effect_tables: Dictionary = {
+		"star": _parse_oam_frame_table(mapper, 28, 0x9CD7, false, 16),
+		"air_puff": _parse_oam_frame_table(mapper, 28, 0x9F0B, false, 8),
+		"items": _parse_oam_frame_table(mapper, 28, 0x9FC4, false, 8),
+		"boss_apples": _parse_oam_frame_table(mapper, 58, 0x9C62, false, 8),
+		"boss_puffs": _parse_oam_frame_table(mapper, 58, 0x9E25, false, 8),
+	}
+
+	return {
+		"actors": actors,
+		"kirby_tables": kirby_tables,
+		"effect_tables": effect_tables,
+	}

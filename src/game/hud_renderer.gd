@@ -176,12 +176,10 @@ func _rebuild_hud_texture() -> void:
 	var score_str: String = "SCORE %07d" % mini(_score, 9999999)
 	_draw_rom_text(out_rgba, font_rgba, score_str, 12, 7, pal_bg1, pal_bg0[0])
 
-	# Row 2 (Y=20): Kirby mini icon + Lives + HP Pips
-	var kirby_bank: Image = ContentRegistry.get_chr_bank_image(Constants.CHR_BANK_KIRBY_DEFAULT)
-	if kirby_bank != null:
-		var kirby_rgba: PackedByteArray = kirby_bank.get_data()
-		var k_tiles: PackedInt32Array = PackedInt32Array([8, 12, 9, 13])
-		_blit_tile_grid(out_rgba, kirby_rgba, k_tiles, 2, 2, 12, 20, pal_kirby, true)
+	# Row 2 (Y=20): Kirby mini icon + Lives + HP Pips via extracted PRG-ROM metasprite
+	var k_icon_img: Image = _get_rom_kirby_portrait_image()
+	if k_icon_img != null:
+		_blit_rgba_image(out_rgba, k_icon_img, 12, 20)
 
 	var lives_str: String = "%02d" % mini(_lives, 99)
 	_draw_rom_text(out_rgba, font_rgba, lives_str, 30, 24, pal_bg1, pal_bg0[0])
@@ -220,9 +218,49 @@ func _rebuild_hud_texture() -> void:
 	_texture_rect.texture = _hud_texture
 
 
+func _get_rom_kirby_portrait_image() -> Image:
+	var frame_spec: Dictionary = ContentRegistry.get_kirby_metasprite_frame("default", 0)
+	if not frame_spec.is_empty():
+		var built: Dictionary = ContentRegistry.build_rom_metasprite(frame_spec, ContentRegistry.get_room_sprite_palettes(-1))
+		if not built.is_empty():
+			var tex: ImageTexture = built["texture"] as ImageTexture
+			if tex != null:
+				return tex.get_image()
+	return null
+
+
+func _blit_rgba_image(out_rgba: PackedByteArray, src_img: Image, dst_x: int, dst_y: int) -> void:
+	if src_img == null or src_img.is_empty():
+		return
+	var w: int = src_img.get_width()
+	var h: int = src_img.get_height()
+	var src_rgba: PackedByteArray = src_img.get_data()
+	for py: int in range(h):
+		var dy: int = dst_y + py
+		if dy < 0 or dy >= HUD_HEIGHT:
+			continue
+		for px: int in range(w):
+			var dx: int = dst_x + px
+			if dx < 0 or dx >= HUD_WIDTH:
+				continue
+			var src_off: int = (py * w + px) * 4
+			if src_rgba[src_off + 3] == 0:
+				continue
+			var dst_off: int = (dy * HUD_WIDTH + dx) * 4
+			out_rgba[dst_off] = src_rgba[src_off]
+			out_rgba[dst_off + 1] = src_rgba[src_off + 1]
+			out_rgba[dst_off + 2] = src_rgba[src_off + 2]
+			out_rgba[dst_off + 3] = 255
+
+
 func _draw_ability_card_portrait(out_rgba: PackedByteArray, dst_x: int, dst_y: int) -> void:
+	if _copy_ability == Constants.CopyAbility.NONE:
+		var k_img: Image = _get_rom_kirby_portrait_image()
+		if k_img != null:
+			_blit_rgba_image(out_rgba, k_img, dst_x, dst_y)
+			return
 	var bank_id: int = Constants.CHR_BANK_KIRBY_DEFAULT
-	var tiles: PackedInt32Array = PackedInt32Array([8, 12, 9, 13])
+	var tiles: PackedInt32Array = PackedInt32Array([2, 18, 3, 19])
 	var w_t: int = 2
 	var h_t: int = 2
 	var pal_key: String = "kirby_default"

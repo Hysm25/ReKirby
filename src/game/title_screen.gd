@@ -124,20 +124,28 @@ func setup_from_rom() -> void:
 	_surface_texture = ImageTexture.create_from_image(img)
 	_backdrop_rect.texture = _surface_texture
 
-	_kirby_tex_open = ContentRegistry.build_rom_oam_8x16(
+	var room_pals: Array[PackedColorArray] = ContentRegistry.get_room_sprite_palettes(-1)
+	var k_open_spec: Dictionary = ContentRegistry.get_kirby_metasprite_frame("default", 0)
+	var k_blink_spec: Dictionary = ContentRegistry.get_kirby_metasprite_frame("default", 2)
+	var star_spec: Dictionary = ContentRegistry.get_effect_metasprite_frame("star", 0)
+	var k_open_built: Dictionary = ContentRegistry.build_rom_metasprite(k_open_spec, room_pals)
+	var k_blink_built: Dictionary = ContentRegistry.build_rom_metasprite(k_blink_spec, room_pals)
+	var star_built: Dictionary = ContentRegistry.build_rom_metasprite(star_spec, room_pals)
+
+	_kirby_tex_open = (k_open_built["texture"] as ImageTexture) if not k_open_built.is_empty() else ContentRegistry.build_rom_oam_8x16(
 		Constants.CHR_BANK_KIRBY_DEFAULT,
-		Vector2i(8, 9),
-		Vector2i(12, 13),
+		Vector2i(2, 3),
+		Vector2i(18, 19),
 		"kirby_default",
 		false,
 		false,
 		false,
 		1
 	)
-	_kirby_tex_blink = ContentRegistry.build_rom_oam_8x16(
+	_kirby_tex_blink = (k_blink_built["texture"] as ImageTexture) if not k_blink_built.is_empty() else ContentRegistry.build_rom_oam_8x16(
 		Constants.CHR_BANK_KIRBY_DEFAULT,
-		Vector2i(8, 9),
-		Vector2i(14, 15),
+		Vector2i(2, 3),
+		Vector2i(28, 29),
 		"kirby_default",
 		false,
 		false,
@@ -145,10 +153,10 @@ func setup_from_rom() -> void:
 		1
 	)
 	_kirby_rect.texture = _kirby_tex_open
-	_star_rect.texture = ContentRegistry.build_rom_oam_8x16(
+	_star_rect.texture = (star_built["texture"] as ImageTexture) if not star_built.is_empty() else ContentRegistry.build_rom_oam_8x16(
 		Constants.CHR_BANK_STAR_EFFECTS,
-		Vector2i(16, 17),
 		Vector2i(18, 19),
+		Vector2i(22, 23),
 		"hud_sp_star",
 		false,
 		false,

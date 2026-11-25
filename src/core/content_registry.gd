@@ -12,7 +12,9 @@ var _palettes: Dictionary = {}
 var _metatiles: Dictionary = {}
 var _rooms: Dictionary = {}
 var _audio_tables: Dictionary = {}
+var _metasprites: Dictionary = {}
 var _sprite_tex_cache: Dictionary = {}
+var _metasprite_cache: Dictionary = {}
 
 
 func is_ready() -> bool:
@@ -28,7 +30,9 @@ func clear() -> void:
 	_metatiles.clear()
 	_rooms.clear()
 	_audio_tables.clear()
+	_metasprites.clear()
 	_sprite_tex_cache.clear()
+	_metasprite_cache.clear()
 
 
 func require_initialized() -> bool:
@@ -52,7 +56,8 @@ func populate_from_extraction(
 	palettes: Dictionary,
 	metatiles: Dictionary,
 	rooms: Dictionary,
-	audio_tables: Dictionary
+	audio_tables: Dictionary,
+	metasprites: Dictionary = {}
 ) -> void:
 	if chr_1k_images.size() != Constants.EXPECTED_CHR_BANKS_1K:
 		push_error("ContentRegistry: Expected %d 1KB CHR banks, received %d." % [Constants.EXPECTED_CHR_BANKS_1K, chr_1k_images.size()])
@@ -69,6 +74,7 @@ func populate_from_extraction(
 	_metatiles = _normalize_int_keyed_dict(metatiles.duplicate(true))
 	_rooms = _normalize_int_keyed_dict(rooms.duplicate(true))
 	_audio_tables = audio_tables.duplicate(true)
+	_metasprites = metasprites.duplicate(true)
 	_initialized = true
 
 
@@ -142,6 +148,8 @@ func load_from_user_data(
 	var rooms: Dictionary = rooms_var as Dictionary
 	if tilesets.is_empty() or rooms.is_empty():
 		return false
+	var metasprites_var: Variant = world1_data.get("metasprites", {})
+	var metasprites: Dictionary = metasprites_var as Dictionary if (metasprites_var is Dictionary) else {}
 
 	var loaded_1k_images: Array[Image] = []
 	for bank_8k: int in range(Constants.EXPECTED_CHR_BANKS_8K):
@@ -163,7 +171,7 @@ func load_from_user_data(
 			var bank_1k_img: Image = sheet_img.get_region(slice_rect)
 			loaded_1k_images.append(bank_1k_img)
 
-	populate_from_extraction(manifest, loaded_1k_images, palettes, tilesets, rooms, audio_data)
+	populate_from_extraction(manifest, loaded_1k_images, palettes, tilesets, rooms, audio_data, metasprites)
 	return _initialized
 
 
@@ -399,6 +407,202 @@ func build_rom_sprite_texture(
 	var tex: ImageTexture = ImageTexture.create_from_image(img)
 	_sprite_tex_cache[cache_key] = tex
 	return tex
+
+
+func get_metasprites() -> Dictionary:
+	if not _initialized:
+		return {}
+	return _metasprites
+
+
+func get_actor_metasprite_frames(actor_id: int) -> Array:
+	if not _initialized:
+		return []
+	var actors_var: Variant = _metasprites.get("actors", {})
+	if not (actors_var is Dictionary):
+		return []
+	var actors_dict: Dictionary = actors_var as Dictionary
+	var key: String = str(actor_id)
+	if not actors_dict.has(key):
+		return []
+	var entry: Dictionary = actors_dict[key] as Dictionary
+	var frames_var: Variant = entry.get("frames", [])
+	return frames_var as Array if (frames_var is Array) else []
+
+
+func get_kirby_metasprite_frame(table_key: String, frame_idx: int) -> Dictionary:
+	if not _initialized:
+		return {}
+	var tbls_var: Variant = _metasprites.get("kirby_tables", {})
+	if not (tbls_var is Dictionary):
+		return {}
+	var tbls: Dictionary = tbls_var as Dictionary
+	if not tbls.has(table_key):
+		return {}
+	var frames_arr: Array = tbls[table_key] as Array
+	if frame_idx < 0 or frame_idx >= frames_arr.size():
+		return {}
+	return frames_arr[frame_idx] as Dictionary
+
+
+func get_effect_metasprite_frame(table_key: String, frame_idx: int) -> Dictionary:
+	if not _initialized:
+		return {}
+	var tbls_var: Variant = _metasprites.get("effect_tables", {})
+	if not (tbls_var is Dictionary):
+		return {}
+	var tbls: Dictionary = tbls_var as Dictionary
+	if not tbls.has(table_key):
+		return {}
+	var frames_arr: Array = tbls[table_key] as Array
+	if frame_idx < 0 or frame_idx >= frames_arr.size():
+		return {}
+	return frames_arr[frame_idx] as Dictionary
+
+
+static func _palette_list_signature(palettes: Array[PackedColorArray]) -> String:
+	var parts: PackedStringArray = PackedStringArray()
+	for pal: PackedColorArray in palettes:
+		for c_idx: int in range(1, mini(4, pal.size())):
+			var col: Color = pal[c_idx]
+			parts.append("%02x%02x%02x" % [
+				clampi(int(round(col.r * 255.0)), 0, 255),
+				clampi(int(round(col.g * 255.0)), 0, 255),
+				clampi(int(round(col.b * 255.0)), 0, 255),
+			])
+	return "".join(parts)
+
+
+func get_room_sprite_palettes(room_id: int) -> Array[PackedColorArray]:
+	var sp0: PackedColorArray = get_palette_colors("kirby_default")
+	var sp1: PackedColorArray = get_palette_colors("hud_sp_star")
+	var sp2: PackedColorArray = get_palette_colors("room_%d_sp_2" % room_id) if room_id >= 0 else get_palette_colors("hud_sp_fire")
+	var sp3: PackedColorArray = get_palette_colors("room_%d_sp_3" % room_id) if room_id >= 0 else get_palette_colors("hud_sp_beam")
+	if sp1.size() < 4:
+		sp1 = sp0
+	if sp2.size() < 4:
+		sp2 = get_palette_colors("hud_sp_fire")
+	if sp3.size() < 4:
+		sp3 = get_palette_colors("hud_sp_beam")
+	return [sp0, sp1, sp2, sp3]
+
+
+func build_rom_metasprite(
+	frame_spec: Dictionary,
+	palettes: Array[PackedColorArray],
+	r0_fallback: int = Constants.CHR_BANK_KIRBY_DEFAULT,
+	r1_bank: int = 154,
+	common_odd_bank: int = Constants.CHR_BANK_STAR_EFFECTS
+) -> Dictionary:
+	if not _initialized or frame_spec.is_empty() or palettes.is_empty():
+		return {}
+	var sprites_var: Variant = frame_spec.get("sprites", [])
+	if not (sprites_var is Array):
+		return {}
+	var sprites: Array = sprites_var as Array
+	if sprites.is_empty():
+		return {}
+
+	var r0_raw: int = int(frame_spec.get("r0_bank", -1))
+	var active_r0: int = (r0_raw if r0_raw >= 0 else r0_fallback) & 0xFE
+	var active_r1: int = r1_bank & 0xFE
+	var cache_key: String = "%d_%d_%d_%d_%s_%s" % [
+		int(frame_spec.get("ptr", 0)),
+		active_r0,
+		active_r1,
+		common_odd_bank,
+		str(sprites),
+		_palette_list_signature(palettes),
+	]
+	if _metasprite_cache.has(cache_key):
+		return _metasprite_cache[cache_key] as Dictionary
+
+	var min_x: int = 9999
+	var max_x: int = -9999
+	var min_y: int = 9999
+	var max_y: int = -9999
+	for sp_var: Variant in sprites:
+		var sp: Dictionary = sp_var as Dictionary
+		var dx: int = int(sp.get("dx", 0))
+		var dy: int = int(sp.get("dy", 0))
+		min_x = mini(min_x, dx)
+		max_x = maxi(max_x, dx + Constants.TILE_SIZE)
+		min_y = mini(min_y, dy)
+		max_y = maxi(max_y, dy + Constants.METATILE_SIZE)
+
+	var img_w: int = max_x - min_x
+	var img_h: int = max_y - min_y
+	if img_w <= 0 or img_h <= 0 or img_w > 128 or img_h > 128:
+		return {}
+
+	var out_rgba: PackedByteArray = PackedByteArray()
+	out_rgba.resize(img_w * img_h * 4)
+
+	# Draw back-to-front so NES OAM slot 0 takes top priority cleanly
+	for s_idx: int in range(sprites.size() - 1, -1, -1):
+		var sp: Dictionary = sprites[s_idx] as Dictionary
+		var dx: int = int(sp.get("dx", 0)) - min_x
+		var dy: int = int(sp.get("dy", 0)) - min_y
+		var tile: int = int(sp.get("tile", 0)) & 0xFF
+		var attr: int = int(sp.get("attr", 0)) & 0xFF
+		var pal_idx: int = clampi(attr & 0x03, 0, palettes.size() - 1)
+		var pal: PackedColorArray = palettes[pal_idx]
+		if pal.size() < 4:
+			continue
+		var flip_h: bool = (attr & 0x40) != 0
+		var flip_v: bool = (attr & 0x80) != 0
+
+		var bank_1k: int = active_r0
+		if tile >= 0x80:
+			bank_1k = active_r1 + ((tile - 0x80) >> 6)
+		elif (tile & 1) != 0:
+			bank_1k = common_odd_bank + ((tile & 0x7E) >> 6)
+		else:
+			bank_1k = active_r0 + (tile >> 6)
+
+		var bank_img: Image = get_chr_bank_image(bank_1k)
+		if bank_img == null or bank_img.is_empty():
+			continue
+		var src_rgba: PackedByteArray = bank_img.get_data()
+		var base_tile: int = tile & 0x3E
+
+		for py: int in range(Constants.METATILE_SIZE):
+			var src_y_total: int = (Constants.METATILE_SIZE - 1 - py) if flip_v else py
+			var local_tile: int = base_tile + (src_y_total >> 3)
+			var src_py: int = src_y_total & 7
+			var tx0: int = (local_tile % 8) * Constants.TILE_SIZE
+			var ty0: int = (local_tile / 8) * Constants.TILE_SIZE
+			var src_row: int = ((ty0 + src_py) * Constants.CHR_1K_BANK_SHEET_WIDTH + tx0) * 4
+			var dst_y: int = dy + py
+			if dst_y < 0 or dst_y >= img_h:
+				continue
+			var dst_row: int = (dst_y * img_w) * 4
+			for px: int in range(Constants.TILE_SIZE):
+				var dst_x: int = dx + px
+				if dst_x < 0 or dst_x >= img_w:
+					continue
+				var src_px: int = (Constants.TILE_SIZE - 1 - px) if flip_h else px
+				var gray: int = src_rgba[src_row + src_px * 4]
+				var c_idx: int = clampi((gray + 42) / 85, 0, 3)
+				if c_idx == 0:
+					continue
+				var col: Color = pal[c_idx]
+				var dst_off: int = dst_row + dst_x * 4
+				out_rgba[dst_off] = clampi(int(round(col.r * 255.0)), 0, 255)
+				out_rgba[dst_off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)
+				out_rgba[dst_off + 2] = clampi(int(round(col.b * 255.0)), 0, 255)
+				out_rgba[dst_off + 3] = 255
+
+	var img: Image = Image.create_from_data(img_w, img_h, false, Image.FORMAT_RGBA8, out_rgba)
+	var tex: ImageTexture = ImageTexture.create_from_image(img)
+	var out: Dictionary = {
+		"texture": tex,
+		"offset": Vector2(float(min_x), float(min_y) - 7.0),
+		"width": img_w,
+		"height": img_h,
+	}
+	_metasprite_cache[cache_key] = out
+	return out
 
 
 func build_rom_oam_8x16(

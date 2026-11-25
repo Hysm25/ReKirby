@@ -116,41 +116,61 @@ func _ensure_visual_sprite() -> void:
 	_apply_kirby_anim_texture("idle_0")
 
 
-func _get_kirby_pose_spec(anim_key: String) -> Dictionary:
-	# NES 8x16 hardware sprite columns: left_col=(TL, BL), right_col=(TR, BR)
+func _get_kirby_rom_frame_ref(anim_key: String) -> Dictionary:
+	# Maps Kirby gameplay state + facing_dir directly onto PRG-ROM Banks 26..28 metasprite tables (even=Right, even+1=Left).
+	var dir_off: int = 0 if facing_dir >= 0 else 1
 	match anim_key:
 		"idle_0":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(8, 9), "right": Vector2i(12, 13), "flip_r": false}
+			return {"table": "default", "idx": 0 + dir_off}
 		"idle_blink":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(8, 9), "right": Vector2i(14, 15), "flip_r": false}
+			return {"table": "default", "idx": 2 + dir_off}
 		"walk_0":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(4, 5), "right": Vector2i(16, 17), "flip_r": false}
+			return {"table": "default", "idx": 18 + dir_off}
 		"walk_1":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(8, 9), "right": Vector2i(18, 19), "flip_r": false}
+			return {"table": "default", "idx": 20 + dir_off}
 		"walk_2":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(10, 11), "right": Vector2i(16, 17), "flip_r": false}
+			return {"table": "default", "idx": 22 + dir_off}
 		"walk_3":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(6, 7), "right": Vector2i(24, 25), "flip_r": false}
+			return {"table": "default", "idx": 20 + dir_off}
 		"crouch":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(56, 57), "right": Vector2i(58, 59), "flip_r": false}
+			return {"table": "default", "idx": 46 + dir_off}
 		"slide":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(52, 53), "right": Vector2i(54, 55), "flip_r": false}
+			return {"table": "default", "idx": 56 + dir_off}
 		"jump_flip":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(40, 41), "right": Vector2i(40, 41), "flip_r": true}
+			return {"table": "default", "idx": 4 + dir_off}
+		"jump_up":
+			return {"table": "default", "idx": 34 + dir_off}
+		"fall":
+			return {"table": "default", "idx": 42 + dir_off}
 		"hover_0":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "left": Vector2i(8, 9), "right": Vector2i(12, 13), "flip_r": false}
+			return {"table": "default", "idx": 80 + dir_off}
 		"hover_1":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "left": Vector2i(14, 15), "right": Vector2i(16, 17), "flip_r": false}
+			return {"table": "default", "idx": 82 + dir_off}
 		"hover_2":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "left": Vector2i(18, 19), "right": Vector2i(20, 21), "flip_r": false}
+			return {"table": "default", "idx": 84 + dir_off}
+		"mouth_full":
+			return {"table": "default", "idx": 78 + dir_off}
 		"inhale":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "left": Vector2i(32, 33), "right": Vector2i(34, 35), "flip_r": false}
+			return {"table": "default", "idx": 30 + dir_off}
+		"swim_0":
+			return {"table": "default", "idx": 58 + dir_off}
+		"swim_1":
+			return {"table": "default", "idx": 60 + dir_off}
 		"hurt":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "left": Vector2i(24, 25), "right": Vector2i(26, 27), "flip_r": false}
-		"ability_atk":
-			return {"bank": Constants.CHR_BANK_ABILITY_KIRBY, "left": Vector2i(8, 9), "right": Vector2i(16, 17), "flip_r": false}
+			return {"table": "default", "idx": 52 + dir_off}
+		"ability_sword":
+			var s_idx: int = ((_anim_frame / 4) % 4) * 2
+			return {"table": "default", "idx": 90 + s_idx + dir_off}
+		"ability_fire":
+			var f_idx: int = ((_anim_frame / 3) % 4) * 2
+			return {"table": "fire", "idx": f_idx + dir_off}
+		"ability_beam":
+			var b_idx: int = ((_anim_frame / 4) % 4) * 2
+			return {"table": "beam", "idx": b_idx + dir_off}
+		"ability_spark", "ability_atk":
+			return {"table": "default", "idx": 42 + dir_off}
 		_:
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(8, 9), "right": Vector2i(12, 13), "flip_r": false}
+			return {"table": "default", "idx": 0 + dir_off}
 
 
 func _resolve_anim_key() -> String:
@@ -168,9 +188,9 @@ func _resolve_anim_key() -> String:
 		State.SLIDE:
 			return "slide"
 		State.JUMP:
-			return "jump_flip" if ((_anim_frame / 4) % 2) == 0 else "walk_1"
+			return "jump_flip" if ((_anim_frame / 4) % 2) == 0 else "jump_up"
 		State.FALL:
-			return "walk_3" if vel.y > 1.2 else "idle_0"
+			return "fall"
 		State.HOVER:
 			var step_h: int = (_anim_frame / 6) % 3
 			return "hover_%d" % step_h
@@ -179,13 +199,23 @@ func _resolve_anim_key() -> String:
 		State.MOUTH_FULL:
 			if absf(vel.x) > 0.1 and ((_anim_frame / 7) % 2) == 1:
 				return "hover_1"
-			return "hover_0"
+			return "mouth_full"
 		State.SWIM, State.WATER_GUN:
-			return "hover_1" if ((_anim_frame / 8) % 2) == 0 else "hover_2"
+			return "swim_0" if ((_anim_frame / 8) % 2) == 0 else "swim_1"
 		State.DAMAGE_KNOCKBACK, State.DEFEAT:
 			return "hurt"
 		State.ABILITY_ATTACK:
-			return "ability_atk"
+			match copy_ability:
+				Constants.CopyAbility.SWORD:
+					return "ability_sword"
+				Constants.CopyAbility.FIRE:
+					return "ability_fire"
+				Constants.CopyAbility.BEAM:
+					return "ability_beam"
+				Constants.CopyAbility.SPARK:
+					return "ability_spark"
+				_:
+					return "ability_atk"
 		_:
 			return "idle_0"
 
@@ -195,23 +225,37 @@ func _apply_kirby_anim_texture(anim_key: String) -> void:
 	_last_tex_facing = facing_dir
 	if _sprite == null or not ContentRegistry.is_ready():
 		return
-	var spec: Dictionary = _get_kirby_pose_spec(anim_key)
-	var bank_id: int = int(spec.get("bank", Constants.CHR_BANK_KIRBY_DEFAULT))
-	var l_col: Vector2i = spec.get("left", Vector2i(8, 9)) as Vector2i
-	var r_col: Vector2i = spec.get("right", Vector2i(12, 13)) as Vector2i
-	var flip_r: bool = bool(spec.get("flip_r", false))
-	var tex: ImageTexture = ContentRegistry.build_rom_oam_8x16(
-		bank_id,
-		l_col,
-		r_col,
+	var ref: Dictionary = _get_kirby_rom_frame_ref(anim_key)
+	var tbl: String = String(ref.get("table", "default"))
+	var f_idx: int = int(ref.get("idx", 0))
+	var frame_spec: Dictionary = ContentRegistry.get_kirby_metasprite_frame(tbl, f_idx)
+	if not frame_spec.is_empty():
+		var room_id: int = _level_map.get_room_id() if _level_map != null else -1
+		var pals: Array[PackedColorArray] = ContentRegistry.get_room_sprite_palettes(room_id)
+		var built: Dictionary = ContentRegistry.build_rom_metasprite(
+			frame_spec,
+			pals,
+			Constants.CHR_BANK_KIRBY_DEFAULT,
+			154,
+			Constants.CHR_BANK_STAR_EFFECTS
+		)
+		if not built.is_empty():
+			_sprite.texture = built["texture"] as ImageTexture
+			_sprite.position = built["offset"] as Vector2
+			return
+	var fallback_tex: ImageTexture = ContentRegistry.build_rom_oam_8x16(
+		Constants.CHR_BANK_KIRBY_DEFAULT,
+		Vector2i(2, 3),
+		Vector2i(18, 19),
 		"kirby_default",
 		false,
-		flip_r,
+		false,
 		false,
 		facing_dir
 	)
-	if tex != null:
-		_sprite.texture = tex
+	if fallback_tex != null:
+		_sprite.texture = fallback_tex
+		_sprite.position = Vector2(-8.0, -16.0)
 
 
 func get_current_anim_key() -> String:
