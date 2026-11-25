@@ -289,8 +289,31 @@ func _test_live_world1_stages_and_boss_vertical_slice() -> void:
 	game._build_ui_layout()
 	game._enter_ready_state()
 
+	# Verify TitleScreen state renders 256x240 ROM banner and transitions on START
+	_assert_eq_int(game._current_state, Constants.GameState.TITLE, "Boot enters TitleScreen state after ROM ingestion")
+	_assert_true(game._title_screen != null and game._title_screen.is_ready_visual(), "TitleScreen builds 256x240 ROM visuals")
+	if game._title_screen != null and game._title_screen.get_surface_texture() != null:
+		_assert_eq_int(game._title_screen.get_surface_texture().get_width(), Constants.NATIVE_WIDTH, "TitleScreen surface width is 256px")
+		_assert_eq_int(game._title_screen.get_surface_texture().get_height(), Constants.NATIVE_HEIGHT, "TitleScreen surface height is 240px")
+
+	InputManager.set_mock_mask(Constants.NesButton.START)
+	game._physics_process(1.0 / 60.0)
+	_assert_eq_int(game._current_state, Constants.GameState.PLAYING, "Pressing START transitions TitleScreen -> PLAYING")
+	_assert_eq_int(game._current_room_id, 43, "New game starts in Stage 1-1 Room 43")
+	InputManager.set_mock_mask(0)
+	InputManager.step_frame()
+
 	# Verify Stage 1-1 Room 43 spawns authentic enemies
 	_assert_true(game.get_enemies().size() >= 5, "Stage 1-1 Room 43 spawns World 1 enemies (count=%d)" % game.get_enemies().size())
+
+	# Verify pressing UP at Room 43 exit door transitions cleanly to Room 44
+	game._kirby.pos = Vector2(984.0, 120.0)
+	InputManager.set_mock_mask(Constants.NesButton.UP)
+	InputManager.step_frame()
+	game.step_gameplay_frame()
+	_assert_eq_int(game._current_room_id, 44, "Pressing UP at Room 43 door warps cleanly to Room 44")
+	InputManager.set_mock_mask(0)
+	InputManager.step_frame()
 
 	# Progress across Stage 1-2 (47), Stage 1-3 (53), and Boss Room 30 (Whispy Woods)
 	_assert_true(game.load_world_room(47, Vector2(40.0, 128.0), true), "Main transitions to Stage 1-2 Room 47")

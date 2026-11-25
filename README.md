@@ -55,10 +55,10 @@ git status --short
 | Phase | Milestone | Status |
 | :--- | :--- | :--- |
 | **Phase 0** | Project Skeleton, Core Autoloads & Missing ROM Boot Guard | Completed |
-| **Phase 1** | ROM Validator, MMC3 Mapper, HAL LZ77/RLE Decompressor & 2BPP CHR Extractor | Core Completed (PRG Table Mapping Next) |
-| **Phase 2** | 16x16 Metatile Slope Physics, Kirby Controller & Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`) | Pending |
-| **Phase 3** | 2A03 APU 5-Channel Audio Engine (`Pulse 1/2`, `Triangle`, `Noise`, `DMC`) | Pending |
-| **Phase 4** | World 1 (Vegetable Valley) & Whispy Woods Boss Vertical Slice | Pending |
+| **Phase 1** | ROM Validator, MMC3 Mapper, HAL LZ77/RLE Decompressor & 2BPP CHR/Table Extractor | Completed |
+| **Phase 2** | 16x16 Metatile Slope Physics, Kirby Controller & Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`) | Completed |
+| **Phase 3** | 2A03 APU 5-Channel Audio Engine (`Pulse 1/2`, `Triangle`, `Noise`, `DMC`) & PRG-ROM Player | Completed |
+| **Phase 4** | Title Screen, World 1 (Vegetable Valley) & Whispy Woods Boss Vertical Slice | Core Completed (`320/320` Headless Tests Pass; On-Device Verification Pending) |
 
 For full technical specifications and live task tracking, see:
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)

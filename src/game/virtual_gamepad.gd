@@ -52,21 +52,28 @@ func _on_viewport_size_changed() -> void:
 		rebuild_for_viewport_size(vr.size)
 
 
+static func get_centered_stage_rect(vp_size: Vector2) -> Rect2:
+	var w: float = maxf(float(Constants.NATIVE_WIDTH), vp_size.x)
+	var h: float = maxf(float(Constants.NATIVE_HEIGHT), vp_size.y)
+	var sx: float = (w - float(Constants.NATIVE_WIDTH)) * 0.5
+	var sy: float = (h - float(Constants.NATIVE_HEIGHT)) * 0.5
+	return Rect2(sx, sy, float(Constants.NATIVE_WIDTH), float(Constants.NATIVE_HEIGHT))
+
+
 func rebuild_for_viewport_size(vp_size: Vector2) -> void:
 	var w: float = maxf(256.0, vp_size.x)
 	var h: float = maxf(240.0, vp_size.y)
 	_last_viewport_size = Vector2(w, h)
 
-	# D-Pad anchored to bottom-left margin centered around (38, h - 44)
+	# Anchor all buttons inside outer left/right margins clear of the centered 256x240 stage & bottom HUD
 	var dpad_center: Vector2 = Vector2(38.0, h - 44.0)
-	var center_x: float = w * 0.5
 	_button_rects = {
 		Constants.NesButton.UP: Rect2(dpad_center + Vector2(-10.0, -30.0), Vector2(20.0, 20.0)),
 		Constants.NesButton.DOWN: Rect2(dpad_center + Vector2(-10.0, 10.0), Vector2(20.0, 20.0)),
 		Constants.NesButton.LEFT: Rect2(dpad_center + Vector2(-30.0, -10.0), Vector2(20.0, 20.0)),
 		Constants.NesButton.RIGHT: Rect2(dpad_center + Vector2(10.0, -10.0), Vector2(20.0, 20.0)),
-		Constants.NesButton.SELECT: Rect2(Vector2(center_x - 32.0, h - 20.0), Vector2(28.0, 14.0)),
-		Constants.NesButton.START: Rect2(Vector2(center_x + 8.0, h - 20.0), Vector2(28.0, 14.0)),
+		Constants.NesButton.SELECT: Rect2(Vector2(16.0, 28.0), Vector2(32.0, 14.0)),
+		Constants.NesButton.START: Rect2(Vector2(w - 48.0, 28.0), Vector2(32.0, 14.0)),
 		Constants.NesButton.B: Rect2(Vector2(w - 74.0, h - 42.0), Vector2(28.0, 28.0)),
 		Constants.NesButton.A: Rect2(Vector2(w - 36.0, h - 54.0), Vector2(28.0, 28.0)),
 	}

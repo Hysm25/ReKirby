@@ -95,6 +95,7 @@ var _spawned_projectiles: Array[Dictionary] = []
 var _sprite: Sprite2D = null
 var _anim_frame: int = 0
 var _current_anim_key: String = "idle_0"
+var _last_tex_facing: int = 1
 var _abilities: Dictionary = {}
 var _active_ability: AbilityBase = null
 
@@ -116,39 +117,40 @@ func _ensure_visual_sprite() -> void:
 
 
 func _get_kirby_pose_spec(anim_key: String) -> Dictionary:
+	# NES 8x16 hardware sprite columns: left_col=(TL, BL), right_col=(TR, BR)
 	match anim_key:
 		"idle_0":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([8, 12, 9, 13])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(8, 9), "right": Vector2i(12, 13), "flip_r": false}
 		"idle_blink":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([8, 14, 9, 15])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(8, 9), "right": Vector2i(14, 15), "flip_r": false}
 		"walk_0":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([4, 16, 5, 17])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(4, 5), "right": Vector2i(16, 17), "flip_r": false}
 		"walk_1":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([4, 18, 5, 19])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(8, 9), "right": Vector2i(18, 19), "flip_r": false}
 		"walk_2":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([10, 16, 11, 17])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(10, 11), "right": Vector2i(16, 17), "flip_r": false}
 		"walk_3":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([6, 24, 7, 25])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(6, 7), "right": Vector2i(24, 25), "flip_r": false}
 		"crouch":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([56, 58, 57, 59])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(56, 57), "right": Vector2i(58, 59), "flip_r": false}
 		"slide":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([52, 54, 53, 55])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(52, 53), "right": Vector2i(54, 55), "flip_r": false}
 		"jump_flip":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([40, 42, 41, 43])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(40, 41), "right": Vector2i(40, 41), "flip_r": true}
 		"hover_0":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "tiles": PackedInt32Array([8, 12, 9, 13])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "left": Vector2i(8, 9), "right": Vector2i(12, 13), "flip_r": false}
 		"hover_1":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "tiles": PackedInt32Array([14, 16, 15, 17])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "left": Vector2i(14, 15), "right": Vector2i(16, 17), "flip_r": false}
 		"hover_2":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "tiles": PackedInt32Array([18, 20, 19, 21])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "left": Vector2i(18, 19), "right": Vector2i(20, 21), "flip_r": false}
 		"inhale":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "tiles": PackedInt32Array([32, 34, 33, 35])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "left": Vector2i(32, 33), "right": Vector2i(34, 35), "flip_r": false}
 		"hurt":
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "tiles": PackedInt32Array([24, 26, 25, 27])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT + 1, "left": Vector2i(24, 25), "right": Vector2i(26, 27), "flip_r": false}
 		"ability_atk":
-			return {"bank": Constants.CHR_BANK_ABILITY_KIRBY, "tiles": PackedInt32Array([8, 12, 9, 13])}
+			return {"bank": Constants.CHR_BANK_ABILITY_KIRBY, "left": Vector2i(8, 9), "right": Vector2i(16, 17), "flip_r": false}
 		_:
-			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "tiles": PackedInt32Array([8, 12, 9, 13])}
+			return {"bank": Constants.CHR_BANK_KIRBY_DEFAULT, "left": Vector2i(8, 9), "right": Vector2i(12, 13), "flip_r": false}
 
 
 func _resolve_anim_key() -> String:
@@ -190,12 +192,24 @@ func _resolve_anim_key() -> String:
 
 func _apply_kirby_anim_texture(anim_key: String) -> void:
 	_current_anim_key = anim_key
+	_last_tex_facing = facing_dir
 	if _sprite == null or not ContentRegistry.is_ready():
 		return
 	var spec: Dictionary = _get_kirby_pose_spec(anim_key)
 	var bank_id: int = int(spec.get("bank", Constants.CHR_BANK_KIRBY_DEFAULT))
-	var tiles: PackedInt32Array = spec.get("tiles", PackedInt32Array([8, 12, 9, 13])) as PackedInt32Array
-	var tex: ImageTexture = ContentRegistry.build_rom_sprite_texture(bank_id, tiles, 2, 2, "kirby_default")
+	var l_col: Vector2i = spec.get("left", Vector2i(8, 9)) as Vector2i
+	var r_col: Vector2i = spec.get("right", Vector2i(12, 13)) as Vector2i
+	var flip_r: bool = bool(spec.get("flip_r", false))
+	var tex: ImageTexture = ContentRegistry.build_rom_oam_8x16(
+		bank_id,
+		l_col,
+		r_col,
+		"kirby_default",
+		false,
+		flip_r,
+		false,
+		facing_dir
+	)
 	if tex != null:
 		_sprite.texture = tex
 
@@ -834,9 +848,12 @@ func _move_and_collide() -> void:
 				if state == State.SLIDE and col_type == Constants.TileCollision.BREAKABLE_STAR:
 					_level_map.break_metatile_at(mx, check_my)
 					continue
-				# Allow climbing onto a solid step only if it's already below slope tolerance? No, full solid blocks horizontally unless feet are already above its surface
 				var tile_top_y: float = float(check_my * Constants.METATILE_SIZE)
-				if on_ground and check_my == y_bot and pos.y - tile_top_y <= 2.0:
+				var on_slope_ramp: bool = on_ground and LevelMap.is_slope_collision(
+					_level_map.get_collision_at_pixel(int(roundf(pos.x - vel.x)), int(roundf(pos.y - 1.0)))
+				) and not LevelMap.is_full_solid_collision(_level_map.get_collision_at_tile(mx, check_my - 1))
+				var step_tol: float = HALF_WIDTH + 2.0 if on_slope_ramp else 2.0
+				if on_ground and check_my == y_bot and pos.y - tile_top_y <= step_tol:
 					continue
 				blocked = true
 				break
@@ -868,18 +885,29 @@ func _move_and_collide() -> void:
 
 	if on_ground and vel.y >= 0.0:
 		var base_my: int = int(floor(pos.y / float(Constants.METATILE_SIZE)))
+		var slope_center_y: float = _find_slope_center_surface_y(
+			base_my - 1,
+			base_my + 1,
+			pos.y - SLOPE_UP_TOLERANCE,
+			pos.y + SLOPE_DOWN_TOLERANCE,
+			allow_one_way
+		)
 		var best_y: float = 1e9
 		var found_support: bool = false
-		for sx: float in sample_xs:
-			for check_my: int in [base_my - 1, base_my, base_my + 1]:
-				var surf: int = _level_map.get_floor_surface_y(int(sx), check_my, allow_one_way)
-				if surf < 0:
-					continue
-				var surf_f: float = float(surf)
-				if surf_f >= pos.y - SLOPE_UP_TOLERANCE and surf_f <= pos.y + SLOPE_DOWN_TOLERANCE:
-					if surf_f < best_y:
-						best_y = surf_f
-						found_support = true
+		if slope_center_y >= 0.0:
+			best_y = slope_center_y
+			found_support = true
+		else:
+			for sx: float in sample_xs:
+				for check_my: int in [base_my - 1, base_my, base_my + 1]:
+					var surf: int = _level_map.get_floor_surface_y(int(sx), check_my, allow_one_way)
+					if surf < 0:
+						continue
+					var surf_f: float = float(surf)
+					if surf_f >= pos.y - SLOPE_UP_TOLERANCE and surf_f <= pos.y + SLOPE_DOWN_TOLERANCE:
+						if surf_f < best_y:
+							best_y = surf_f
+							found_support = true
 		if found_support:
 			pos.y = best_y
 			vel.y = 0.0
@@ -903,23 +931,51 @@ func _move_and_collide() -> void:
 		else:
 			var min_my: int = int(floor(prev_y / float(Constants.METATILE_SIZE))) - 1
 			var max_my: int = int(floor(pos.y / float(Constants.METATILE_SIZE))) + 1
+			var slope_land_y: float = _find_slope_center_surface_y(
+				min_my,
+				max_my,
+				prev_y - 2.0,
+				pos.y,
+				allow_one_way
+			)
 			var best_land_y: float = 1e9
 			var landed: bool = false
-			for sx: float in sample_xs:
-				for check_my: int in range(min_my, max_my + 1):
-					var surf: int = _level_map.get_floor_surface_y(int(sx), check_my, allow_one_way)
-					if surf < 0:
-						continue
-					var surf_f: float = float(surf)
-					if prev_y <= surf_f + 2.0 and pos.y >= surf_f:
-						if surf_f < best_land_y:
-							best_land_y = surf_f
-							landed = true
+			if slope_land_y >= 0.0:
+				best_land_y = slope_land_y
+				landed = true
+			else:
+				for sx: float in sample_xs:
+					for check_my: int in range(min_my, max_my + 1):
+						var surf: int = _level_map.get_floor_surface_y(int(sx), check_my, allow_one_way)
+						if surf < 0:
+							continue
+						var surf_f: float = float(surf)
+						if prev_y <= surf_f + 2.0 and pos.y >= surf_f:
+							if surf_f < best_land_y:
+								best_land_y = surf_f
+								landed = true
 			if landed:
 				pos.y = best_land_y
 				vel.y = 0.0
 				on_ground = true
 				_hovering = false
+
+
+func _find_slope_center_surface_y(min_my: int, max_my: int, min_y: float, max_y: float, allow_one_way: bool) -> float:
+	var best_y: float = 1e9
+	var cx: int = int(roundf(pos.x))
+	var cmx: int = int(floor(float(cx) / float(Constants.METATILE_SIZE)))
+	for check_my: int in range(min_my, max_my + 1):
+		var col_type: int = _level_map.get_collision_at_tile(cmx, check_my)
+		if not LevelMap.is_slope_collision(col_type):
+			continue
+		var surf: int = _level_map.get_floor_surface_y(cx, check_my, allow_one_way)
+		if surf < 0:
+			continue
+		var surf_f: float = float(surf)
+		if surf_f >= min_y and surf_f <= max_y and surf_f < best_y:
+			best_y = surf_f
+	return best_y if best_y < 1e8 else -1.0
 
 
 func _check_hazards() -> void:
@@ -931,15 +987,15 @@ func _check_hazards() -> void:
 
 
 func _sync_visual() -> void:
-	position = pos
+	position = Vector2(roundf(pos.x), roundf(pos.y))
 	if _active_ability != null:
 		_active_ability.position = Vector2.ZERO
 		_active_ability.sync_visuals()
 	var next_key: String = _resolve_anim_key()
-	if next_key != _current_anim_key or (_sprite != null and _sprite.texture == null):
+	if next_key != _current_anim_key or facing_dir != _last_tex_facing or (_sprite != null and _sprite.texture == null):
 		_apply_kirby_anim_texture(next_key)
 	if _sprite != null:
-		_sprite.flip_h = facing_dir < 0
+		_sprite.flip_h = false
 		if invuln_frames > 0:
 			_sprite.visible = (invuln_frames % 4) < 2
 		else:

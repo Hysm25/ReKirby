@@ -135,7 +135,17 @@ enum TileCollision {
 }
 
 
-static func map_nes_collision_to_enum(nes_collision_byte: int) -> int:
+static func map_nes_collision_to_enum(nes_collision_byte: int, raw_prop: int = -1) -> int:
+	# Bank 18 raw_prop 18..21 disambiguates lower vs upper half of 26.5-degree slopes
+	if raw_prop == 18:
+		return TileCollision.SLOPE_26_UP_L
+	if raw_prop == 19:
+		return TileCollision.SLOPE_26_UP_H
+	if raw_prop == 20:
+		return TileCollision.SLOPE_26_DOWN_L
+	if raw_prop == 21:
+		return TileCollision.SLOPE_26_DOWN_H
+
 	var shape: int = nes_collision_byte & 0x0F
 	var is_water: bool = (nes_collision_byte & 0x80) != 0
 	var is_breakable: bool = (nes_collision_byte & 0x20) != 0

@@ -49,8 +49,10 @@ var _room_sprite_chr_bank: int = 154
 var _level_map: LevelMap = null
 var _spawned_projectiles: Array[Dictionary] = []
 var _sprite: Sprite2D = null
-var _tex_frame_a: ImageTexture = null
-var _tex_frame_b: ImageTexture = null
+var _tex_a_right: ImageTexture = null
+var _tex_b_right: ImageTexture = null
+var _tex_a_left: ImageTexture = null
+var _tex_b_left: ImageTexture = null
 
 
 func _ready() -> void:
@@ -153,8 +155,10 @@ func setup(
 	_level_map = level_map
 	_room_sprite_chr_bank = room_sprite_bank
 	_spawned_projectiles.clear()
-	_tex_frame_a = null
-	_tex_frame_b = null
+	_tex_a_right = null
+	_tex_b_right = null
+	_tex_a_left = null
+	_tex_b_left = null
 	_ensure_sprite()
 	_sync_visual()
 
@@ -430,49 +434,88 @@ func _apply_ground_physics(turn_on_ledge: bool) -> void:
 func _refresh_rom_textures() -> void:
 	if not ContentRegistry.is_ready():
 		return
-	var fh: int = Constants.OAM_FLIP_H
-	var fv: int = Constants.OAM_FLIP_V
 	var bank_id: int = _room_sprite_chr_bank
-	var tiles_a: PackedInt32Array = PackedInt32Array([4, 4 | fh, 5, 5 | fh])
-	var tiles_b: PackedInt32Array = PackedInt32Array([0, 4 | fh, 1, 5 | fh])
 	var pal_key: String = "hud_sp_fire"
 	if _level_map != null:
 		var r_sp2: String = "room_%d_sp_2" % _level_map.get_room_id()
 		if not ContentRegistry.get_palette_indices(r_sp2).is_empty():
 			pal_key = r_sp2
 
+	# NES 8x16 hardware column pairs: L=(TL,BL), R=(TR,BR)
+	var la: Vector2i = Vector2i(4, 5)
+	var ra: Vector2i = Vector2i(4, 5)
+	var lb: Vector2i = Vector2i(20, 21)
+	var rb: Vector2i = Vector2i(20, 21)
+	var flip_r_a: bool = true
+	var flip_r_b: bool = true
+	var natural_facing: int = 1 # 1 if base tiles face right, -1 if base tiles face left
+
 	match enemy_type:
 		EnemyType.WADDLE_DEE:
 			bank_id = 154
-			tiles_a = PackedInt32Array([4, 4 | fh, 5, 5 | fh])
-			tiles_b = PackedInt32Array([0, 4 | fh, 1, 5 | fh])
+			la = Vector2i(4, 5)
+			ra = Vector2i(4, 5)
+			lb = Vector2i(20, 21)
+			rb = Vector2i(20, 21)
+			flip_r_a = true
+			flip_r_b = true
 		EnemyType.WADDLE_DOO:
 			bank_id = 154
-			tiles_a = PackedInt32Array([14, 14 | fh, 15, 15 | fh])
-			tiles_b = PackedInt32Array([12, 14 | fh, 13, 15 | fh])
+			la = Vector2i(48, 49)
+			ra = Vector2i(50, 51)
+			lb = Vector2i(48, 49)
+			rb = Vector2i(52, 53)
+			flip_r_a = false
+			flip_r_b = false
+			natural_facing = 1
 		EnemyType.POPPY_BROS_JR:
 			bank_id = 154
-			tiles_a = PackedInt32Array([32, 34 | fh, 33, 35 | fh])
-			tiles_b = PackedInt32Array([48, 50, 49, 51])
+			la = Vector2i(32, 33)
+			ra = Vector2i(34, 35)
+			lb = Vector2i(36, 37)
+			rb = Vector2i(38, 39)
+			flip_r_a = false
+			flip_r_b = false
 		EnemyType.BLADE_KNIGHT:
 			bank_id = 158
-			tiles_a = PackedInt32Array([42, 42 | fh, 43, 43 | fh])
-			tiles_b = PackedInt32Array([40, 40 | fh, 41, 41 | fh])
+			la = Vector2i(42, 43)
+			ra = Vector2i(42, 43)
+			lb = Vector2i(40, 41)
+			rb = Vector2i(40, 41)
+			flip_r_a = true
+			flip_r_b = true
 		EnemyType.HOT_HEAD:
 			bank_id = 158
-			tiles_a = PackedInt32Array([32, 32 | fh, 33, 33 | fh])
-			tiles_b = PackedInt32Array([34, 34 | fh, 35, 35 | fh])
+			la = Vector2i(32, 33)
+			ra = Vector2i(32, 33)
+			lb = Vector2i(34, 35)
+			rb = Vector2i(34, 35)
+			flip_r_a = true
+			flip_r_b = true
 		EnemyType.SPARKY:
 			bank_id = 158
-			tiles_a = PackedInt32Array([38, 38 | fh, 39, 39 | fh])
-			tiles_b = PackedInt32Array([36, 36 | fh, 37, 37 | fh])
+			la = Vector2i(38, 39)
+			ra = Vector2i(38, 39)
+			lb = Vector2i(36, 37)
+			rb = Vector2i(36, 37)
+			flip_r_a = true
+			flip_r_b = true
 		EnemyType.BRONTO_BURT:
 			bank_id = 154
-			tiles_a = PackedInt32Array([28, 30, 29, 31])
-			tiles_b = PackedInt32Array([28, 30 | fv, 29, 31])
+			la = Vector2i(28, 29)
+			ra = Vector2i(30, 31)
+			lb = Vector2i(28, 29)
+			rb = Vector2i(30, 31)
+			flip_r_a = false
+			flip_r_b = false
+			natural_facing = -1
 
-	_tex_frame_a = ContentRegistry.build_rom_sprite_texture(bank_id, tiles_a, 2, 2, pal_key)
-	_tex_frame_b = ContentRegistry.build_rom_sprite_texture(bank_id, tiles_b, 2, 2, pal_key)
+	var dir_r: int = 1 if natural_facing > 0 else -1
+	var dir_l: int = -dir_r
+	_tex_a_right = ContentRegistry.build_rom_oam_8x16(bank_id, la, ra, pal_key, false, flip_r_a, false, dir_r)
+	_tex_b_right = ContentRegistry.build_rom_oam_8x16(bank_id, lb, rb, pal_key, false, flip_r_b, false, dir_r)
+	_tex_a_left = ContentRegistry.build_rom_oam_8x16(bank_id, la, ra, pal_key, false, flip_r_a, false, dir_l)
+	_tex_b_left = ContentRegistry.build_rom_oam_8x16(bank_id, lb, rb, pal_key, false, flip_r_b, false, dir_l)
 
 
 func get_current_anim_frame_index() -> int:
@@ -482,20 +525,20 @@ func get_current_anim_frame_index() -> int:
 
 
 func _sync_visual() -> void:
-	position = pos
+	position = Vector2(roundf(pos.x), roundf(pos.y))
 	if _sprite == null:
 		return
 	if state == State.DEFEATED:
 		_sprite.visible = false
 		return
-	if _tex_frame_a == null and ContentRegistry.is_ready():
+	if _tex_a_right == null and ContentRegistry.is_ready():
 		_refresh_rom_textures()
 	var frame_idx: int = get_current_anim_frame_index()
-	if _tex_frame_b != null and frame_idx == 1:
-		_sprite.texture = _tex_frame_b
-	elif _tex_frame_a != null:
-		_sprite.texture = _tex_frame_a
-	_sprite.flip_h = facing_dir > 0
+	var use_left: bool = facing_dir < 0
+	var tex: ImageTexture = (_tex_b_left if frame_idx == 1 else _tex_a_left) if use_left else (_tex_b_right if frame_idx == 1 else _tex_a_right)
+	if tex != null:
+		_sprite.texture = tex
+	_sprite.flip_h = false
 	if _hit_cooldown > 0:
 		_sprite.visible = (_hit_cooldown % 2) == 0
 	else:

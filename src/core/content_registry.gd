@@ -399,3 +399,30 @@ func build_rom_sprite_texture(
 	var tex: ImageTexture = ImageTexture.create_from_image(img)
 	_sprite_tex_cache[cache_key] = tex
 	return tex
+
+
+func build_rom_oam_8x16(
+	bank_1k: int,
+	left_col: Vector2i,
+	right_col: Vector2i,
+	palette_key: String,
+	flip_left_h: bool = false,
+	flip_right_h: bool = false,
+	flip_v: bool = false,
+	facing_dir: int = 1
+) -> ImageTexture:
+	# Assemble NES 8x16 hardware sprite columns (left=[TL,BL], right=[TR,BR]) into a 2x2 ImageTexture.
+	# When facing_dir < 0, swap left/right columns and toggle horizontal flip on every 8x8 tile.
+	var l_tl: int = (left_col.x & 0x3F) | (Constants.OAM_FLIP_H if flip_left_h else 0) | (Constants.OAM_FLIP_V if flip_v else 0)
+	var l_bl: int = (left_col.y & 0x3F) | (Constants.OAM_FLIP_H if flip_left_h else 0) | (Constants.OAM_FLIP_V if flip_v else 0)
+	var r_tr: int = (right_col.x & 0x3F) | (Constants.OAM_FLIP_H if flip_right_h else 0) | (Constants.OAM_FLIP_V if flip_v else 0)
+	var r_br: int = (right_col.y & 0x3F) | (Constants.OAM_FLIP_H if flip_right_h else 0) | (Constants.OAM_FLIP_V if flip_v else 0)
+
+	if facing_dir < 0:
+		var m_tl: int = r_tr ^ Constants.OAM_FLIP_H
+		var m_tr: int = l_tl ^ Constants.OAM_FLIP_H
+		var m_bl: int = r_br ^ Constants.OAM_FLIP_H
+		var m_br: int = l_bl ^ Constants.OAM_FLIP_H
+		return build_rom_sprite_texture(bank_1k, PackedInt32Array([m_tl, m_tr, m_bl, m_br]), 2, 2, palette_key)
+
+	return build_rom_sprite_texture(bank_1k, PackedInt32Array([l_tl, r_tr, l_bl, r_br]), 2, 2, palette_key)

@@ -143,7 +143,7 @@ static func extract_tileset(
 		var nes_collision: int = 0
 		if raw_prop < property_table.size():
 			nes_collision = property_table[raw_prop]
-		var collision_type: int = Constants.map_nes_collision_to_enum(nes_collision)
+		var collision_type: int = Constants.map_nes_collision_to_enum(nes_collision, raw_prop)
 
 		metatiles[mt_id] = {
 			"tl": tl,

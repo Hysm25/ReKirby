@@ -5,8 +5,8 @@
 
 ---
 
-## Current Workspace Snapshot (Phase 4 Bugfix & Polish Complete — Interactive Controls, HUD Digits, OAM Animations & 2A03 Audio)
-- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM, World 1, and Audio PRG-ROM Extraction Pipeline (`src/importer/`), Mandatory ROM Setup Guard + full World 1 gameplay loop (`src/main.gd`, `src/main.tscn`), Phase 2 `LevelMap`, multi-frame animated `KirbyController`, Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`), Scanline IRQ Split `HUDRenderer` (authentic CHR Bank `254` `0xFE` digit/alpha font), widescreen-anchored auto-hiding `VirtualGamepad` (`src/game/`), Phase 3 2A03 5-channel `APUEngine` & Bank 29 bytecode-accurate `MusicPlayer` (`src/audio/`), Phase 4 `StarProjectile`, animated H-flipped OAM `EnemyBase` (7 World 1 enemies), and `WhispyWoods` boss (`src/game/entities/`), and headless test suite (`tests/test_runner.gd`, `tests/test_importer.gd`, `tests/test_physics.gd`, `tests/test_audio.gd`, `tests/test_vertical_slice.gd`) implemented and passing 100% (`285/285`).
+## Current Workspace Snapshot (Visual, Physics & Title Screen Polish Complete)
+- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM, World 1, and Audio PRG-ROM Extraction Pipeline (`src/importer/`), Mandatory ROM Setup Guard + ROM `TitleScreen` (`src/game/title_screen.gd`) -> full World 1 gameplay loop (`src/main.gd`, `src/main.tscn`), Phase 2 `LevelMap` with exact `raw_prop` `18..21` 26.5° slope splits, center-snapped `KirbyController` slope footing + NES `8x16` column-major OAM compositor (`ContentRegistry.build_rom_oam_8x16`), Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`), transparent Bank `254` Scanline IRQ Split `HUDRenderer`, outer-margin `VirtualGamepad` (`SELECT`/`START` clear of stage & HUD), Phase 3 2A03 5-channel `APUEngine` & Bank 29 `MusicPlayer` (`src/audio/`), Phase 4 `StarProjectile`, 8x16 OAM `EnemyBase`, and `WhispyWoods` boss (`src/game/entities/`), and headless test suite (`tests/`) implemented and passing 100% (`320/320`).
 - **Completed So Far**:
   - [x] Audited workspace directory, relocated local ROM into git-ignored `rom/`, and verified `rom/*.nes` exclusion.
   - [x] Established clean-room `.gitignore` and `AGENTS.md` execution blueprint.
@@ -57,8 +57,14 @@
 - [x] **World 1 Enemies (`src/game/entities/enemy_base.gd`)**: Waddle Dee, Waddle Doo (Beam), Poppy Bros. Jr., Blade Knight (Sword), Hot Head (Fire), Sparky (Spark), Bronto Burt.
 - [x] **Stage Progression**: Vegetable Valley Stages 1–1 through 1–3 (`src/game/entities/star_projectile.gd`, `src/game/level_map.gd`, `src/main.gd` multi-screen door transitions, breakable blocks, Copy Ability capture/drop, Goal Star Rod).
 - [x] **Boss Encounter (`src/game/entities/whispy_woods.gd`)**: Whispy Woods boss room (`Room 30`: air puff attacks, falling apples to inhale/spit back, boss HP bar in scanline HUD, Goal Star Rod / victory fanfare).
-- [x] **HUD & Controls Polish**: Fixed CHR Bank `254` (`0xFE`) HUD digit/letter offsets (`'0'..'9'` -> `0x1C..0x25`), widescreen-margin `VirtualGamepad` anchoring with keyboard/gamepad auto-hide, multi-frame OAM H-flipped sprite animations for Kirby/enemies/Whispy Woods, and Bank 29 `MusicPlayer`/`APUEngine` note sign-extension & channel muting.
+- [x] **Title Screen, OAM 8x16, HUD & Controls Polish**:
+  - [x] Fixed CHR Bank `254` glyph transparent background padding (`c_idx <= 1` skipped so `SCORE`/digits/ability cards show zero orange boxes).
+  - [x] Relocated `VirtualGamepad` `SELECT`/`START` into outer top-left/right widescreen margins (`VirtualGamepad.get_centered_stage_rect()` overlap = none for all 8 buttons).
+  - [x] Switched character/enemy/projectile sprite composition to NES `8x16` column-major OAM assembly (`ContentRegistry.build_rom_oam_8x16()` with facing column-swap + H-flip).
+  - [x] Fixed `WorldExtractor` / `Constants` / `LevelMap` 26.5° slope upper/lower split (`raw_prop` `18..21` + `SLOPE_26_DOWN_L/H` swap) and `KirbyController` center-snapped slope footing.
+  - [x] Added ROM-rendered `TitleScreen` (`src/game/title_screen.gd`, `256x240`, `PRESS START` blink, `START`/`A`/touch transition into World 1 Stage 1-1 `Room 43`) and verified `Room 43 -> 44` `UP` door transition.
+  - [x] Fixed Bank 29 `MusicPlayer`/`APUEngine` note sign-extension & channel muting.
 - [ ] **Target Platform Verification**:
-  - [x] Headless test runner (`godot --headless -s tests/test_runner.gd`) passing 100% (`285/285`).
+  - [x] Headless test runner (`godot --headless -s tests/test_runner.gd`) passing 100% (`320/320`).
   - [ ] Desktop verification on CachyOS (Intel i5-2400, GL Compatibility).
   - [ ] Android APK export & touch verification on Snapdragon 6 Gen 3.

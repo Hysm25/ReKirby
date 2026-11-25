@@ -104,6 +104,10 @@ func _test_slope_heightmap_tables() -> void:
 	_assert_eq_int(LevelMap.get_local_surface_y(Constants.TileCollision.SLOPE_26_UP_L, 15), 8, "SLOPE_26_UP_L x=15 -> y=8")
 	_assert_eq_int(LevelMap.get_local_surface_y(Constants.TileCollision.SLOPE_26_UP_H, 0), 7, "SLOPE_26_UP_H x=0 -> y=7")
 	_assert_eq_int(LevelMap.get_local_surface_y(Constants.TileCollision.SLOPE_26_UP_H, 15), 0, "SLOPE_26_UP_H x=15 -> y=0")
+	_assert_eq_int(LevelMap.get_local_surface_y(Constants.TileCollision.SLOPE_26_DOWN_H, 0), 0, "SLOPE_26_DOWN_H x=0 -> y=0")
+	_assert_eq_int(LevelMap.get_local_surface_y(Constants.TileCollision.SLOPE_26_DOWN_H, 15), 7, "SLOPE_26_DOWN_H x=15 -> y=7")
+	_assert_eq_int(LevelMap.get_local_surface_y(Constants.TileCollision.SLOPE_26_DOWN_L, 0), 8, "SLOPE_26_DOWN_L x=0 -> y=8")
+	_assert_eq_int(LevelMap.get_local_surface_y(Constants.TileCollision.SLOPE_26_DOWN_L, 15), 15, "SLOPE_26_DOWN_L x=15 -> y=15")
 
 
 func _test_walk_run_and_jump_physics() -> void:
@@ -570,18 +574,35 @@ func _test_hud_renderer_and_virtual_gamepad() -> void:
 	_assert_eq_int(HUDRenderer.map_char_to_font_tile("A"), 0x26, "HUD font maps 'A' to tile 0x26")
 	_assert_eq_int(HUDRenderer.map_char_to_font_tile("Z"), 0x3F, "HUD font maps 'Z' to tile 0x3F")
 
-	# Verify VirtualGamepad routes touch presses cleanly & anchors widescreen margins clear of 256x240 stage
+	# Verify VirtualGamepad routes touch presses cleanly & places ALL 8 buttons clear of centered 256x240 stage
 	var pad: VirtualGamepad = VirtualGamepad.new()
 	pad._build_overlay()
+	for vp_size: Vector2 in [Vector2(426.0, 240.0), Vector2(1280.0, 720.0)]:
+		pad.rebuild_for_viewport_size(vp_size)
+		var stage_rect: Rect2 = VirtualGamepad.get_centered_stage_rect(vp_size)
+		for btn: int in [
+			Constants.NesButton.UP,
+			Constants.NesButton.DOWN,
+			Constants.NesButton.LEFT,
+			Constants.NesButton.RIGHT,
+			Constants.NesButton.SELECT,
+			Constants.NesButton.START,
+			Constants.NesButton.B,
+			Constants.NesButton.A,
+		]:
+			var rect: Rect2 = pad.get_button_rect(btn)
+			_assert_true(not stage_rect.intersects(rect), "VirtualGamepad btn %d clear of stage on %s" % [btn, str(vp_size)])
 	pad.rebuild_for_viewport_size(Vector2(1280.0, 720.0))
 	var b_wide: Rect2 = pad.get_button_rect(Constants.NesButton.B)
 	var a_wide: Rect2 = pad.get_button_rect(Constants.NesButton.A)
 	var left_wide: Rect2 = pad.get_button_rect(Constants.NesButton.LEFT)
 	var sel_wide: Rect2 = pad.get_button_rect(Constants.NesButton.SELECT)
+	var sta_wide: Rect2 = pad.get_button_rect(Constants.NesButton.START)
 	_assert_true(b_wide.position.x > 1180.0 and b_wide.position.y > 650.0, "VirtualGamepad B anchors to far right margin on 1280x720")
 	_assert_true(a_wide.position.x > 1220.0 and a_wide.position.y > 640.0, "VirtualGamepad A anchors to far right margin on 1280x720")
 	_assert_true(left_wide.position.x < 50.0 and left_wide.position.y > 640.0, "VirtualGamepad D-Pad anchors to bottom-left margin")
-	_assert_true(sel_wide.position.x > 580.0 and sel_wide.position.x < 640.0 and sel_wide.position.y > 690.0, "VirtualGamepad SELECT anchors to bottom-center")
+	_assert_true(sel_wide.position.x < 60.0 and sel_wide.position.y < 60.0, "VirtualGamepad SELECT anchors to top-left outer margin")
+	_assert_true(sta_wide.position.x > 1200.0 and sta_wide.position.y < 60.0, "VirtualGamepad START anchors to top-right outer margin")
 
 	# Auto-hide on physical key press, auto-show on touch press
 	pad.set_overlay_visible(true)
@@ -665,7 +686,49 @@ func _test_live_rom_stage_1_1_if_present() -> void:
 	var door: Dictionary = lvl.find_door_at_pixel(984.0, 120.0)
 	_assert_eq_int(int(door.get("dest_room_id", -1)), 44, "Room 43 exit door triggers transition to Room 44")
 
-	# Load Stage 1-2 Room 47 (contains water/slopes) and verify HUDRenderer renders 256x48 ROM texture
+	# Load Room 44 and verify Kirby's feet snap cleanly onto authentic ROM slopes without sinking
+	_assert_true(lvl.load_room(44), "LevelMap loads extracted Stage 1-1 Room 44 (slopes)")
+	var slope_cols: Array[int] = []
+	for col_x: int in range(lvl.get_width_pixels()):
+		for row_y: int in range(lvl.get_height_pixels()):
+			var c_val: int = lvl.get_collision_at_pixel(col_x, row_y)
+			if LevelMap.is_slope_collision(c_val):
+				slope_cols.append(col_x)
+				break
+		if slope_cols.size() >= 16:
+			break
+	_assert_true(not slope_cols.is_empty(), "Room 44 contains authentic ROM slope metatiles")
+	if not slope_cols.is_empty():
+		var sx: float = float(slope_cols[0])
+		var surf_start: int = lvl.get_slope_surface_y(int(sx), 140)
+		kirby.setup(lvl, Vector2(sx, float(surf_start) - 8.0))
+		InputManager.set_mock_mask(0)
+		for _i: int in range(15):
+			InputManager.step_frame()
+			kirby.step_physics()
+		_assert_true(kirby.on_ground, "Kirby lands cleanly on Room 44 ROM slope")
+		InputManager.set_mock_mask(Constants.NesButton.RIGHT)
+		for _i: int in range(16):
+			InputManager.step_frame()
+			kirby.step_physics()
+		var expected_y: int = lvl.get_slope_surface_y(int(roundf(kirby.pos.x)), int(roundf(kirby.pos.y)))
+		_assert_true(expected_y >= 0 and absf(kirby.pos.y - float(expected_y)) <= 1.0, "Kirby feet align to Room 44 slope surface without sinking (pos_y=%.2f expected=%d)" % [kirby.pos.y, expected_y])
+
+	# Verify NES 8x16 OAM sprite mirror consistency (facing right vs facing left flips all 16px symmetrically)
+	var k_right: ImageTexture = ContentRegistry.build_rom_oam_8x16(Constants.CHR_BANK_KIRBY_DEFAULT, Vector2i(8, 9), Vector2i(12, 13), "kirby_default", false, false, false, 1)
+	var k_left: ImageTexture = ContentRegistry.build_rom_oam_8x16(Constants.CHR_BANK_KIRBY_DEFAULT, Vector2i(8, 9), Vector2i(12, 13), "kirby_default", false, false, false, -1)
+	_assert_true(k_right != null and k_left != null, "ContentRegistry builds left/right 8x16 Kirby OAM sprites")
+	if k_right != null and k_left != null:
+		var r_img: Image = k_right.get_image()
+		var l_img: Image = k_left.get_image()
+		var mirror_mismatches: int = 0
+		for py: int in range(16):
+			for px: int in range(16):
+				if not r_img.get_pixel(px, py).is_equal_approx(l_img.get_pixel(15 - px, py)):
+					mirror_mismatches += 1
+		_assert_eq_int(mirror_mismatches, 0, "8x16 OAM facing=-1 mirrors facing=+1 across 16x16 sprite")
+
+	# Load Stage 1-2 Room 47 (contains water/slopes) and verify HUDRenderer renders 256x48 ROM texture without red glyph boxes
 	_assert_true(lvl.load_room(47), "LevelMap loads extracted Stage 1-2 Room 47")
 	var hud: HUDRenderer = HUDRenderer.new()
 	hud.set_status(6, 6, 4, 2400, Constants.CopyAbility.SWORD)
@@ -673,6 +736,14 @@ func _test_live_rom_stage_1_1_if_present() -> void:
 	if hud.get_hud_texture() != null:
 		_assert_eq_int(hud.get_hud_texture().get_width(), Constants.NATIVE_WIDTH, "HUD texture width is 256px")
 		_assert_eq_int(hud.get_hud_texture().get_height(), Constants.HUD_HEIGHT, "HUD texture height is 48px")
+		var hud_img: Image = hud.get_hud_texture().get_image()
+		var black_bg_pixels: int = 0
+		for hx: int in range(14, 120):
+			for hy: int in range(7, 15):
+				var c: Color = hud_img.get_pixel(hx, hy)
+				if c.r < 0.05 and c.g < 0.05 and c.b < 0.05:
+					black_bg_pixels += 1
+		_assert_true(black_bg_pixels > 400, "HUD text background keeps transparent glyph padding over black (%d black px)" % black_bg_pixels)
 	hud.free()
 
 	InputManager.clear_mock_mask()

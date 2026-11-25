@@ -12,6 +12,7 @@ const MusicPlayer = preload("res://src/audio/music_player.gd")
 const EnemyBase = preload("res://src/game/entities/enemy_base.gd")
 const StarProjectile = preload("res://src/game/entities/star_projectile.gd")
 const WhispyWoods = preload("res://src/game/entities/whispy_woods.gd")
+const TitleScreen = preload("res://src/game/title_screen.gd")
 
 const DEFAULT_START_ROOM_ID: int = 43
 const BOSS_ROOM_ID: int = 30
@@ -23,6 +24,7 @@ const VICTORY_RETURN_FRAMES: int = 90
 var _current_state: int = Constants.GameState.ROM_SETUP
 var _stage_root: Control = null
 var _missing_rom_panel: Control = null
+var _title_screen: TitleScreen = null
 var _gameplay_panel: Control = null
 var _playfield_clip: Control = null
 var _world_container: Node2D = null
@@ -58,7 +60,12 @@ func _physics_process(_delta: float) -> void:
 	if _current_state == Constants.GameState.ROM_SETUP:
 		return
 	InputManager.step_frame()
-	if _kirby != null and _level_map != null and (_current_state == Constants.GameState.PLAYING or _current_state == Constants.GameState.BOSS_FIGHT):
+	if _current_state == Constants.GameState.TITLE:
+		if _title_screen != null:
+			_title_screen.step_frame()
+		if InputManager.is_just_pressed(Constants.NesButton.START) or InputManager.is_just_pressed(Constants.NesButton.A):
+			start_new_game()
+	elif _kirby != null and _level_map != null and (_current_state == Constants.GameState.PLAYING or _current_state == Constants.GameState.BOSS_FIGHT):
 		step_gameplay_frame()
 	if _music_player != null:
 		_music_player.step_frame()
@@ -367,6 +374,7 @@ func _build_ui_layout() -> void:
 	canvas.add_child(_stage_root)
 
 	_build_missing_rom_panel()
+	_build_title_screen()
 	_build_gameplay_panel()
 
 
@@ -497,9 +505,43 @@ func _enter_missing_rom_state() -> void:
 	EventBus.game_state_changed.emit(_current_state, prev)
 
 
+func _build_title_screen() -> void:
+	_title_screen = TitleScreen.new()
+	_title_screen.name = "TitleScreen"
+	_title_screen.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_title_screen.visible = false
+	_title_screen.start_requested.connect(_on_title_start_requested)
+	_stage_root.add_child(_title_screen)
+
+
+func _on_title_start_requested() -> void:
+	if _current_state == Constants.GameState.TITLE:
+		start_new_game()
+
+
 func _enter_ready_state() -> void:
 	var prev: int = _current_state
 	_missing_rom_panel.visible = false
+	_gameplay_panel.visible = false
+	_ensure_world_nodes()
+	if _title_screen == null:
+		_build_title_screen()
+	if _title_screen != null:
+		_title_screen.setup_from_rom()
+		_title_screen.visible = true
+	_current_state = Constants.GameState.TITLE
+	set_physics_process(true)
+	if _music_player != null:
+		_music_player.setup(_apu_engine)
+		EventBus.bgm_requested.emit(0)
+	EventBus.game_state_changed.emit(_current_state, prev)
+
+
+func start_new_game() -> bool:
+	var prev: int = _current_state
+	_missing_rom_panel.visible = false
+	if _title_screen != null:
+		_title_screen.visible = false
 	_gameplay_panel.visible = true
 	_ensure_world_nodes()
 
@@ -515,8 +557,9 @@ func _enter_ready_state() -> void:
 			_music_player.setup(_apu_engine)
 			EventBus.bgm_requested.emit(0)
 		EventBus.game_state_changed.emit(_current_state, prev)
-	else:
-		_enter_missing_rom_state()
+		return true
+	_enter_missing_rom_state()
+	return false
 
 
 func _clear_room_entities() -> void:

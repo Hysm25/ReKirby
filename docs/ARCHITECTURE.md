@@ -196,49 +196,43 @@ ReKirby emulates all **5 channels of the NES 2A03 APU** at 44,100 Hz via `AudioS
 
 ## 7. Directory Layout
 
-### 7.1 Current Workspace State (Pre-Implementation Audit)
-At this stage, no Godot project files or GDScript sources have been created yet. Currently present in `/sdcard/Documents/Codes/ReKirby`:
-```text
-ReKirby/
-├── .gitignore                        # Excludes *.nes, rom/*.nes, rom/*.bin, .godot/, runtime dumps
-├── Kirby's Adventure (USA) (Rev A).nes  # Local user ROM (git-ignored; move to rom/ during setup)
-└── docs/
-    ├── ARCHITECTURE.md               # ReKirby technical specification (this document)
-    ├── MEMORY.md                     # Hardware constraints & ReKirby session log
-    ├── STATUS.md                     # Vertical slice roadmap & progress tracker
-    ├── SOUL.md                       # Assistant persona & rules (untouched)
-    └── USER.md                       # User profile & hardware context (untouched)
-```
+### 7.1 Repository Implementation Status (Vertical Slice Complete — Headless Verified)
+All Phases 0–4 clean-room core, ROM/World/Audio extractors, gameplay controllers, Copy Abilities, HUD, virtual controls, Title Screen, World 1 enemies, and Whispy Woods boss modules are implemented and verified (`320/320` passing in headless `tests/test_runner.gd`). Local user `.nes` files live strictly inside git-ignored `rom/`.
 
-### 7.2 Target Clean-Room Project Structure (`res://`)
+### 7.2 Clean-Room Project Structure (`res://`)
 ```text
 res://
 ├── project.godot                     # Godot 4 project config (256x240, 60 TPS, GL Compatibility, Nearest)
 ├── .gitignore                        # Excludes rom/*.nes, rom/*.bin, .godot/, user://, nes_data/
-├── rom/                              # Git-ignored local ROM drop directory (empty in repo)
+├── AGENTS.md                         # Clean-room blueprint, strict typing & verification rules
+├── README.md                         # Project overview, ROM setup & roadmap
+├── rom/                              # Git-ignored local ROM drop directory (.gitkeep only in Git)
 ├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── MEMORY.md
-│   ├── STATUS.md
-│   ├── SOUL.md
-│   └── USER.md
+│   ├── ARCHITECTURE.md               # ReKirby technical specification (this document)
+│   ├── MEMORY.md                     # Hardware constraints & ReKirby session log
+│   ├── STATUS.md                     # Vertical slice roadmap & progress tracker
+│   ├── SOUL.md                       # Assistant persona & rules (untouched)
+│   └── USER.md                       # User profile & hardware context (untouched)
 ├── src/
-│   ├── main.gd                       # Root boot coordinator & Mandatory ROM Setup Guard
-│   ├── main.tscn                     # Root scene (Playfield Viewport + Scanline HUD Split + VirtualGamepad)
+│   ├── main.gd                       # Root boot coordinator, Title -> Room loop & Mandatory ROM Setup Guard
+│   ├── main.tscn                     # Root scene (TitleScreen + Playfield Viewport + Scanline HUD + VirtualGamepad)
 │   ├── core/
-│   │   ├── constants.gd              # NES/MMC3 hardware constants, enums, Copy Ability IDs, physics values
+│   │   ├── constants.gd              # NES/MMC3 hardware constants, enums, Copy Ability IDs, OAM/collision mapping
 │   │   ├── event_bus.gd              # Global typed signal dispatcher
-│   │   ├── content_registry.gd       # Runtime ROM asset & decompressed level repository
-│   │   └── input_manager.gd          # Keyboard, gamepad & touch input mapper
+│   │   ├── content_registry.gd       # Runtime ROM asset repository & cached NES 8x16 OAM compositor
+│   │   └── input_manager.gd          # Keyboard, gamepad & touch input mapper with SOCD cleaning
 │   ├── importer/
 │   │   ├── rom_validator.gd          # iNES header, Mapper 4 check, SHA-256 / CRC32 verification
 │   │   ├── mmc3_mapper.gd            # Virtual MMC3 PRG/CHR bank switcher & address resolver
 │   │   ├── hal_decompressor.gd       # HAL Laboratory LZ77 / RLE bitstream decoder
 │   │   ├── chr_extractor.gd          # 2BPP planar tile decoder & 2C02 NTSC palette atlas builder
+│   │   ├── world_extractor.gd        # PRG-ROM World 1 metatile, palette, room & door/entity table extractor
+│   │   ├── audio_extractor.gd        # PRG-ROM Bank 29–32 period, envelope, DPCM, BGM & SFX extractor
 │   │   └── rom_importer.gd           # Orchestrates full extraction into user://nes_data/
 │   ├── game/
-│   │   ├── level_map.gd              # 16x16 metatile grid, slopes, water, doors & room transitions
-│   │   ├── kirby_controller.gd       # 60 TPS Kirby physics, inhale, swallow, hover, slide & combat
+│   │   ├── title_screen.gd           # 256x240 ROM-rendered Title Screen (`PRESS START` -> World 1)
+│   │   ├── level_map.gd              # 16x16 metatile grid, 45°/26.5° slopes, water, doors & room transitions
+│   │   ├── kirby_controller.gd       # 60 TPS Kirby physics, slope snapping, inhale, hover, slide & 8x16 anims
 │   │   ├── abilities/
 │   │   │   ├── ability_base.gd       # Typed Copy Ability interface
 │   │   │   ├── ability_sword.gd      # Sword slash, air spin & dash slash
@@ -246,18 +240,18 @@ res://
 │   │   │   ├── ability_spark.gd      # 360-degree electric barrier
 │   │   │   └── ability_beam.gd       # 5-orb curved energy whip
 │   │   ├── entities/
-│   │   │   ├── enemy_base.gd         # Inhaleable/damageable actor state machine
-│   │   │   ├── star_projectile.gd    # Star Spit & dropped Ability Star physics
+│   │   │   ├── enemy_base.gd         # World 1 inhaleable/damageable actor state machine (8x16 OAM anims)
+│   │   │   ├── star_projectile.gd    # Star Spit, Ability Star, Apple, Goal Star Rod & elemental projectiles
 │   │   │   └── whispy_woods.gd       # World 1 Boss (air puffs, falling apples, HP phases)
-│   │   ├── hud_renderer.gd           # Scanline Y=192 split HUD (HP, lives, score, ability card)
-│   │   └── virtual_gamepad.gd        # Android/mobile multi-touch NES overlay
+│   │   ├── hud_renderer.gd           # Scanline Y=192 split HUD (transparent Bank 254 text, HP, lives, card)
+│   │   └── virtual_gamepad.gd        # Outer-margin anchored multi-touch NES overlay (clear of 256x240 stage)
 │   └── audio/
 │       ├── apu_engine.gd             # 2A03 5-channel synthesizer (Pulse 1/2, Triangle, Noise, DMC)
-│       └── music_player.gd           # PRG-ROM music/SFX sequence interpreter
+│       └── music_player.gd           # PRG-ROM Bank 29 music/SFX sequence interpreter
 └── tests/
     ├── test_runner.gd                # Headless verification harness (`godot --headless -s tests/test_runner.gd`)
     ├── test_importer.gd              # ROM validation, MMC3 banking, HAL LZ77/RLE & 2BPP tests
-    ├── test_physics.gd               # 16x16 metatiles, slopes, hover, inhale & Copy Ability tests
-    ├── test_audio.gd                 # 2A03 5-channel & DMC waveform/timing tests
-    └── test_vertical_slice.gd        # World 1 Vegetable Valley room flow & Whispy Woods boss tests
+    ├── test_physics.gd               # Metatiles, slopes, OAM mirror, HUD transparency, margins & abilities
+    ├── test_audio.gd                 # 2A03 5-channel, rest muting, DPCM & MusicPlayer bytecode tests
+    └── test_vertical_slice.gd        # TitleScreen, World 1 room flow, door warp & Whispy Woods boss tests
 ```

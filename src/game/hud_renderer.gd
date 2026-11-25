@@ -320,10 +320,10 @@ func _draw_rom_text(
 					continue
 				var gray: int = font_rgba[src_row + px * 4]
 				var c_idx: int = clampi((gray + 42) / 85, 0, 3)
-				# Color 0 in Bank 254 (0xFE) is transparent background; 3=primary stroke, 2=shadow, 1=accent
-				if c_idx == 0:
+				# Color 0 and 1 in Bank 254 (0xFE) are transparent glyph cell background; 3=primary stroke, 2=drop shadow
+				if c_idx <= 1:
 					continue
-				var col: Color = palette[1] if c_idx == 3 else (bg_override if c_idx == 2 else palette[2])
+				var col: Color = palette[1] if c_idx == 3 else bg_override
 				var dst_off: int = dst_row + dx * 4
 				out_rgba[dst_off] = clampi(int(round(col.r * 255.0)), 0, 255)
 				out_rgba[dst_off + 1] = clampi(int(round(col.g * 255.0)), 0, 255)

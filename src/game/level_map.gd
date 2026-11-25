@@ -90,7 +90,11 @@ func load_from_dicts(room_data: Dictionary, tileset_data: Dictionary) -> bool:
 	_tileset_metatiles.clear()
 	for entry_var: Variant in raw_ts:
 		if entry_var is Dictionary:
-			_tileset_metatiles.append(entry_var as Dictionary)
+			var mt_entry: Dictionary = (entry_var as Dictionary).duplicate()
+			var raw_p: int = int(mt_entry.get("raw_prop", -1))
+			if raw_p >= 18 and raw_p <= 21:
+				mt_entry["collision"] = Constants.map_nes_collision_to_enum(int(mt_entry.get("nes_collision", 0)), raw_p)
+			_tileset_metatiles.append(mt_entry)
 
 	_bg_chr_banks.clear()
 	var chr_var: Variant = room_data.get("bg_chr_banks", [])
@@ -339,9 +343,9 @@ static func get_local_surface_y(col_type: int, local_x: int) -> int:
 		Constants.TileCollision.SLOPE_26_UP_H:
 			return 7 - (lx >> 1)
 		Constants.TileCollision.SLOPE_26_DOWN_L:
-			return lx >> 1
-		Constants.TileCollision.SLOPE_26_DOWN_H:
 			return 8 + (lx >> 1)
+		Constants.TileCollision.SLOPE_26_DOWN_H:
+			return lx >> 1
 		_:
 			return -1
 
@@ -357,6 +361,16 @@ func get_floor_surface_y(px: int, my: int, allow_one_way: bool = true) -> int:
 	if local_y < 0:
 		return -1
 	return my * Constants.METATILE_SIZE + local_y
+
+
+func get_slope_surface_y(px: int, py: int, allow_one_way: bool = true) -> int:
+	var base_my: int = int(floor(float(py) / float(Constants.METATILE_SIZE)))
+	var best_y: int = -1
+	for check_my: int in [base_my - 1, base_my, base_my + 1]:
+		var surf: int = get_floor_surface_y(px, check_my, allow_one_way)
+		if surf >= 0 and (best_y < 0 or surf < best_y):
+			best_y = surf
+	return best_y
 
 
 func is_point_solid(px: int, py: int) -> bool:

@@ -311,23 +311,20 @@ func _refresh_rom_textures() -> void:
 
 	match kind:
 		Kind.STAR_SPIT, Kind.ABILITY_STAR, Kind.GOAL_STAR_ROD:
-			_tex_a = ContentRegistry.build_rom_sprite_texture(
+			_tex_a = ContentRegistry.build_rom_oam_8x16(
 				Constants.CHR_BANK_STAR_EFFECTS,
-				PackedInt32Array([16, 18, 17, 19]),
-				2, 2,
+				Vector2i(16, 17), Vector2i(18, 19),
 				pal_key
 			)
-			_tex_b = ContentRegistry.build_rom_sprite_texture(
+			_tex_b = ContentRegistry.build_rom_oam_8x16(
 				Constants.CHR_BANK_STAR_EFFECTS,
-				PackedInt32Array([20, 22, 21, 23]),
-				2, 2,
+				Vector2i(20, 21), Vector2i(22, 23),
 				pal_key
 			)
 		Kind.AIR_PUFF, Kind.WATER_GUN, Kind.BOSS_AIR_PUFF:
-			_tex_a = ContentRegistry.build_rom_sprite_texture(
+			_tex_a = ContentRegistry.build_rom_oam_8x16(
 				Constants.CHR_BANK_STAR_EFFECTS,
-				PackedInt32Array([8, 10, 9, 11]),
-				2, 2,
+				Vector2i(8, 9), Vector2i(10, 11),
 				pal_key
 			)
 			_tex_b = _tex_a
@@ -337,24 +334,20 @@ func _refresh_rom_textures() -> void:
 				var r_sp2: String = "room_%d_sp_2" % _level_map.get_room_id()
 				if not ContentRegistry.get_palette_indices(r_sp2).is_empty():
 					apple_pal = r_sp2
-			var fh: int = Constants.OAM_FLIP_H
-			_tex_a = ContentRegistry.build_rom_sprite_texture(
+			_tex_a = ContentRegistry.build_rom_oam_8x16(
 				154,
-				PackedInt32Array([24, 24 | fh, 25, 25 | fh]),
-				2, 2,
-				apple_pal
+				Vector2i(24, 25), Vector2i(24, 25),
+				apple_pal, false, true
 			)
-			_tex_b = ContentRegistry.build_rom_sprite_texture(
+			_tex_b = ContentRegistry.build_rom_oam_8x16(
 				154,
-				PackedInt32Array([26, 26 | fh, 27, 27 | fh]),
-				2, 2,
-				apple_pal
+				Vector2i(26, 27), Vector2i(26, 27),
+				apple_pal, false, true
 			)
 		Kind.ENEMY_FIRE:
-			_tex_a = ContentRegistry.build_rom_sprite_texture(
+			_tex_a = ContentRegistry.build_rom_oam_8x16(
 				Constants.CHR_BANK_ABILITY_EFFECTS,
-				PackedInt32Array([4, 6, 5, 7]),
-				2, 2,
+				Vector2i(4, 5), Vector2i(6, 7),
 				"hud_sp_fire"
 			)
 			_tex_b = _tex_a
