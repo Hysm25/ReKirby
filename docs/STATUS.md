@@ -1,70 +1,49 @@
 # Project Status (`docs/STATUS.md`)
 
 > **Project**: **ReKirby** — Clean-Room Port of *Kirby's Adventure* (NES, 1993 — Mapper 4 MMC3)  
-> **Engine**: Godot 4 (Strictly Typed GDScript, 60 TPS, GL Compatibility)
+> **Engine**: Godot 4 (Strictly Typed GDScript, 60 TPS, GL Compatibility)  
+> **Overall Estimated ROM Fidelity**: **~20% / 100%** (Headless vertical-slice prototype runs cleanly at `320/320`, while true 1:1 NES OAM, HUD, scroll/door flow, full 7-world content, and Bank 29 audio parity require systematic ROM reverse-engineering & parity milestones)
 
 ---
 
-## Current Workspace Snapshot (Visual, Physics & Title Screen Polish Complete)
-- **Workspace State**: Godot 4.7.1 project skeleton (`project.godot`), Core Autoloads (`src/core/`), full ROM, World 1, and Audio PRG-ROM Extraction Pipeline (`src/importer/`), Mandatory ROM Setup Guard + ROM `TitleScreen` (`src/game/title_screen.gd`) -> full World 1 gameplay loop (`src/main.gd`, `src/main.tscn`), Phase 2 `LevelMap` with exact `raw_prop` `18..21` 26.5° slope splits, center-snapped `KirbyController` slope footing + NES `8x16` column-major OAM compositor (`ContentRegistry.build_rom_oam_8x16`), Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`), transparent Bank `254` Scanline IRQ Split `HUDRenderer`, outer-margin `VirtualGamepad` (`SELECT`/`START` clear of stage & HUD), Phase 3 2A03 5-channel `APUEngine` & Bank 29 `MusicPlayer` (`src/audio/`), Phase 4 `StarProjectile`, 8x16 OAM `EnemyBase`, and `WhispyWoods` boss (`src/game/entities/`), and headless test suite (`tests/`) implemented and passing 100% (`320/320`).
-- **Completed So Far**:
-  - [x] Audited workspace directory, relocated local ROM into git-ignored `rom/`, and verified `rom/*.nes` exclusion.
-  - [x] Established clean-room `.gitignore` and `AGENTS.md` execution blueprint.
-  - [x] Rewrote `docs/ARCHITECTURE.md`, `docs/STATUS.md`, and `docs/MEMORY.md` for ReKirby while keeping `docs/SOUL.md` and `docs/USER.md` untouched.
+## 1. ROM Fidelity Scorecard (~20% / 100%)
+
+| Track | Scope | Est. Fidelity | Key Parity Gaps Observed |
+| :--- | :--- | :---: | :--- |
+| **Track A** | **Authentic OAM Sprite & Animation Bank Mapping** | **~15%** | Currently relies on manually indexed `8x16` tile pairs (`KirbyController`, `EnemyBase`, `WhispyWoods`, `StarProjectile`); lacks PRG-ROM metasprite layout tables, frame-duration tables, and dynamic MMC3 `R0..R5` 1KB/2KB CHR bank swaps per animation frame/entity/HUD state. |
+| **Track B** | **HUD, Font & Screen Layout Accuracy** | **~30%** | Bank `254` font transparency & `VirtualGamepad` outer-margin bounds are working, but exact CHR HUD border tiles, glyph spacing, life/HP/ability card tilemap assembly, and `Y=192..239` MMC3 IRQ split layout still deviate from the NES PPU nametable/OAM screen. |
+| **Track C** | **Room, Door, Scroll & Transition Fidelity** | **~25%** | Boots into synthetic `TitleScreen -> Room 43` and supports basic `Room 43 -> 44` / `47` / `53` / `30` loads, but lacks full PRG-ROM door/warp metadata fidelity, camera scroll-lock strips, fade/warp-star/boss-door transitions, and verified Hub `Room 0` -> Stages `1-1..1-4` -> `Whispy Woods` loop without softlocks or spawn misplacement. |
+| **Track D** | **Full World 1–7 Extraction & Gameplay Completeness** | **~15%** | `WorldExtractor` only extracts World 1 (21 rooms, 9 tilesets) and implements 4 of 24+ Copy Abilities; Worlds 2–7 (Ice Cream Island through Rainbow Resort), mid-bosses, museum/arena/sub-game rooms, Stage `1-4`, Save Slot select, Game Over, and Ending sequences are unimplemented. |
+| **Track E** | **2A03 APU & DPCM Audio Accuracy** | **~30%** | Bank 29 bytecode decoder parses core tracks/SFX without continuous whine, but remaining duty/sweep/vibrato/envelope nuances, authentic DPCM channel gain/rate quirks, and complete gameplay SFX trigger bindings (`inhale`, `spit`, `swallow`, `door`, `hurt`, `pause`, `boss`) need Bank 29 parity auditing. |
 
 ---
 
-## Vertical Slice Roadmap
+## 2. Implemented Engineering Baseline (Structural Foundation)
+The following clean-room engine infrastructure is built and verified (`tests/test_runner.gd`: `320/320` passing in headless mode):
+- [x] **Mandatory ROM Ingestion & Clean-Room Boundary**: iNES Mapper 4 MMC3 validation (`src/importer/rom_validator.gd`), virtual MMC3 banking (`mmc3_mapper.gd`), HAL LZ77/RLE decompression (`hal_decompressor.gd`), 2BPP CHR decoding (`chr_extractor.gd`), World 1 PRG table extractor (`world_extractor.gd`), Bank 29 audio extractor (`audio_extractor.gd`), and Missing ROM boot guard (`src/main.gd`).
+- [x] **Core Simulation & Controls**: 60 TPS `KirbyController`, 16x16 `LevelMap` collision/slope heightmaps, 4 baseline Copy Abilities (`Sword`, `Fire`, `Spark`, `Beam`), outer-margin `VirtualGamepad`, and baseline `TitleScreen` / `HUDRenderer` / `APUEngine` / `MusicPlayer`.
 
-### Phase 0: Project Skeleton & Boot Guard (Completed)
-- [x] Create `rom/` directory with `rom/.gitkeep` and place local `.nes` ROM inside `rom/` (git-ignored).
-- [x] Initialize `project.godot` (256x240 base viewport, `canvas_items`/`expand`, 60 TPS physics loop, Nearest texture filter, `gl_compatibility` renderer, strict GDScript warnings enabled).
-- [x] Implement `src/core/constants.gd`, `src/core/event_bus.gd`, `src/core/content_registry.gd`, and `src/core/input_manager.gd`.
-- [x] Implement `src/main.gd` + `src/main.tscn` with Mandatory ROM Setup Guard & `256x240` Missing ROM setup screen.
-- [x] Set up headless test harness (`tests/test_runner.gd`).
+---
 
-### Phase 1: ROM Extractor & Asset Importer (Completed)
-- [x] **ROM Validator (`src/importer/rom_validator.gd`)**: iNES header parsing, Mapper 4 MMC3 validation, CRC32 & SHA-256 verification.
-- [x] **MMC3 Virtual Mapper (`src/importer/mmc3_mapper.gd`)**: 8 KB PRG bank switching (`$8000-$FFFF`), 1 KB / 2 KB CHR bank switching (`R0–R5`), H/V mirroring (`$A000`), and scanline IRQ state.
-- [x] **HAL Decompressor (`src/importer/hal_decompressor.gd`)**: Full HAL Laboratory LZ77/RLE decoder (opcodes `0..6` including bit-reversed `5` and backward `6`, extended 10-bit length mode, `0xFF` terminator, strict `MAX_ITERATIONS` & bounds checks).
-- [x] **CHR & Palette Extractor (`src/importer/chr_extractor.gd`)**: 2BPP planar tile decoding across 256 x 1KB CHR-ROM banks + 2C02 NTSC 64-color master palette mapping into `user://nes_data/` PNG atlases (`32` x `512x64` sheets).
-- [x] **ROM Importer (`src/importer/rom_importer.gd`)**: Scans `rom/` (and root fallback), validates ROM, extracts CHR sheets, World 1 tables, and palettes into `user://nes_data/`, and populates `ContentRegistry`.
-- [x] **Level & Table Extraction (`src/importer/world_extractor.gd`)**: Dynamic PRG-ROM extraction via `MMC3Mapper` + `HALDecompressor` of 16x16 metatile dictionaries (tiles, 2-bit palettes, NES collision shapes), all 21 World 1 rooms (`R000` Hub, Stages 1-1..1-4 `R043..R060`, Whispy Woods Boss `R030`, Museum `R024`), BG/Sprite subpalettes, 1KB CHR bank bindings, doors, and entity spawns cached to `user://nes_data/world1_data.json`.
-- [x] **Verification (`tests/test_importer.gd`)**: 91 assertions passing (`0` failed) covering HAL LZ77/RLE opcodes, 2BPP decoding, MMC3 bank mapping, collision mapping, `InputManager` 60 TPS/SOCD, `ContentRegistry` guard, live ROM + World 1 extraction, and `user://nes_data/` disk reload.
+## 3. Prioritized Fidelity Backlog Queue (Continuous Parity Loop)
 
-### Phase 2: Core Physics, Metatiles & Copy Abilities (Completed)
-- [x] **16x16 Metatile Physics (`src/game/level_map.gd`)**: Solid blocks, one-way platforms, 45° & 26.5° slopes, water zones, star blocks, spikes, and door transitions.
-- [x] **Kirby Core Controller (`src/game/kirby_controller.gd`)**: Walk, double-tap Run, Crouch, Slide, Jump, Hover + Air Puff, Swim + Water Gun, Inhale cone, Mouth-Full state, Star Spit, Swallow, Ability drop (`SELECT`), and Damage/i-frames (wired into `src/main.gd`).
-- [x] **Copy Abilities (`src/game/abilities/`)**:
-  - [x] `Sword` (slash, air spin, dash slash)
-  - [x] `Fire` (continuous flame stream)
-  - [x] `Spark` (360° electric barrier)
-  - [x] `Beam` (5-orb sweeping curved whip)
-- [x] **Scanline IRQ Split HUD (`src/game/hud_renderer.gd`)**: Fixed `Y = 192..239` status bar with HP pips, lives, score, boss HP, and active Copy Ability card portrait via ROM CHR + Bank 56 palettes.
-- [x] **Mobile & Desktop Controls (`src/game/virtual_gamepad.gd`)**: Keyboard, gamepad, and Android touch overlay.
-- [x] **Verification (`tests/test_physics.gd`)**: Slope heightmap, inhale capture, star spit collisions, HUD/touch routing, and all 4 Copy Ability hitboxes (`88/88` passing; `183/183` total).
+### Fidelity Milestone 1 — PRG-ROM OAM Metasprite, Animation & Dynamic CHR Bank Tables (**NEXT / IN QUEUE**)
+- [ ] **Audit PRG-ROM OAM & CHR Bank Tables in `rom/*.nes`**: Locate and document authentic sprite metasprite definitions (relative `(dx, dy)` offsets, 8x16 tile indices, attribute/palette bits, H/V flip bits), animation frame pointer/duration tables, and dynamic MMC3 `R0..R5` 1KB/2KB CHR bank assignments for Kirby, copy hats/abilities, World 1 enemies (`Waddle Dee`, `Waddle Doo`, `Poppy Bros. Jr.`, `Blade Knight`, `Hot Head`, `Sparky`, `Bronto Burt`), projectiles, `Whispy Woods`, and HUD card portraits.
+- [ ] **Extract Metasprites via Importer (`src/importer/world_extractor.gd`)**: Export extracted metasprite & animation frame JSON definitions dynamically at runtime into `user://nes_data/` (zero hardcoded tile guesses in `src/`).
+- [ ] **Wire Multi-Tile OAM & `R0..R5` Bank Switching**: Replace guessed `Vector2i` pairs in `ContentRegistry`, `KirbyController`, `EnemyBase`, `WhispyWoods`, `StarProjectile`, and `HUDRenderer` with ROM-driven multi-tile OAM frame composition and dynamic CHR bank slot lookup; add regression assertions verifying extracted metasprite counts, bank bindings, and multi-tile bounds.
 
-### Phase 3: 2A03 APU 5-Channel Audio Engine (Completed)
-- [x] **APU Synthesizer (`src/audio/apu_engine.gd`)**:
-  - [x] Pulse 1 & Pulse 2 (4 duty cycles, sweep, envelope)
-  - [x] Triangle (32-step quantized wave + linear counter)
-  - [x] Noise (15-bit LFSR standard & periodic modes)
-  - [x] DMC (1-bit DPCM sample channel with NTSC rate table)
-- [x] **PRG-ROM Music & SFX Interpreter (`src/audio/music_player.gd`)**: Extract via `AudioExtractor` (`src/importer/audio_extractor.gd`) and play authentic Kirby's Adventure BGM tracks & SFX with channel priority overrides.
-- [x] **Verification (`tests/test_audio.gd`)**: Non-clipping mix headroom, DPCM decoding, 93-step periodic noise, and 60 TPS audio stream stability (`39/39` passing; `222/222` total).
+### Fidelity Milestone 2 — Track B: Pixel-Exact HUD Nametable, Card & MMC3 Scanline Layout Parity
+- [ ] **Extract Authentic HUD Nametable & Border/Card Layouts**: Inspect PRG-ROM HUD tilemap/attribute data, CHR bank bindings (`R0..R5` during `Y=192..239` IRQ split), Copy Ability card art (`Bank` + `16x24`/`32x24` card frame), animated HP pips, digit/lives alignment, and Title Screen PPU nametable/OAM composition from `rom/*.nes`.
+- [ ] **Refactor `HUDRenderer` & `TitleScreen`**: Render HUD frame, HP pips, lives counter, score digits, boss gauge, and Copy Ability portrait card pixel-for-pixel matching authentic NES layout (`256x48` at `Y=192..239`).
 
-### Phase 4: World 1 Vegetable Valley & Whispy Woods Boss Vertical Slice (Core Complete — Target Device Verification Pending)
-- [x] **World 1 Enemies (`src/game/entities/enemy_base.gd`)**: Waddle Dee, Waddle Doo (Beam), Poppy Bros. Jr., Blade Knight (Sword), Hot Head (Fire), Sparky (Spark), Bronto Burt.
-- [x] **Stage Progression**: Vegetable Valley Stages 1–1 through 1–3 (`src/game/entities/star_projectile.gd`, `src/game/level_map.gd`, `src/main.gd` multi-screen door transitions, breakable blocks, Copy Ability capture/drop, Goal Star Rod).
-- [x] **Boss Encounter (`src/game/entities/whispy_woods.gd`)**: Whispy Woods boss room (`Room 30`: air puff attacks, falling apples to inhale/spit back, boss HP bar in scanline HUD, Goal Star Rod / victory fanfare).
-- [x] **Title Screen, OAM 8x16, HUD & Controls Polish**:
-  - [x] Fixed CHR Bank `254` glyph transparent background padding (`c_idx <= 1` skipped so `SCORE`/digits/ability cards show zero orange boxes).
-  - [x] Relocated `VirtualGamepad` `SELECT`/`START` into outer top-left/right widescreen margins (`VirtualGamepad.get_centered_stage_rect()` overlap = none for all 8 buttons).
-  - [x] Switched character/enemy/projectile sprite composition to NES `8x16` column-major OAM assembly (`ContentRegistry.build_rom_oam_8x16()` with facing column-swap + H-flip).
-  - [x] Fixed `WorldExtractor` / `Constants` / `LevelMap` 26.5° slope upper/lower split (`raw_prop` `18..21` + `SLOPE_26_DOWN_L/H` swap) and `KirbyController` center-snapped slope footing.
-  - [x] Added ROM-rendered `TitleScreen` (`src/game/title_screen.gd`, `256x240`, `PRESS START` blink, `START`/`A`/touch transition into World 1 Stage 1-1 `Room 43`) and verified `Room 43 -> 44` `UP` door transition.
-  - [x] Fixed Bank 29 `MusicPlayer`/`APUEngine` note sign-extension & channel muting.
-- [ ] **Target Platform Verification**:
-  - [x] Headless test runner (`godot --headless -s tests/test_runner.gd`) passing 100% (`320/320`).
-  - [ ] Desktop verification on CachyOS (Intel i5-2400, GL Compatibility).
-  - [ ] Android APK export & touch verification on Snapdragon 6 Gen 3.
+### Fidelity Milestone 3 — Track C: World 1 Door, Camera Scroll-Lock, Spawn & Transition Fidelity
+- [ ] **Audit PRG-ROM Room Headers, Scroll Locks & Door Records**: Verify 5-byte door destination coordinates, entrance spawn offsets, room camera lock strips, screen-size limits, fade-out/fade-in PPU palette transitions, Warp Star rides, and World 1 Hub (`Room 0`) -> Stage doors `1-1` (`R43..R46`), `1-2` (`R47..R52`), `1-3` (`R53..R56`), `1-4` (`R57..R60`), Museum (`R24`), and `Whispy Woods` (`R30`) boss transitions.
+- [ ] **Eliminate Transition Softlocks & Spawn Misplacements**: Fix `Main`, `LevelMap`, and `KirbyController` door entry, underwater room spawns, boss lock camera bounds, and stage-clear Goal Star Rod return flow to Hub `Room 0` with automated room-graph reachability tests.
+
+### Fidelity Milestone 4 — Track E: Bank 29 2A03 APU Envelope, Sweep, Pitch & Gameplay SFX Parity
+- [ ] **Audit Bank 29 (`0x1D`) Sound Driver Opcodes**: Verify hardware frequency sweep opcodes, arpeggio/vibrato/pitch bend, noise/DPCM trigger timing, triangle linear counter muting, and SFX priority behavior against PRG-ROM driver tables.
+- [ ] **Wire Complete Gameplay SFX Triggers**: Connect `EventBus.sfx_requested` cleanly across jump, hover puff, inhale loop, star spit, swallow, ability gain/drop, slide, door warp, damage, enemy defeat, 1-UP, and boss defeat fanfare.
+
+### Fidelity Milestone 5 — Track D: Full World 1–7 Extraction, Remaining Abilities, Mid-Bosses & Save/Ending Loops
+- [ ] **Generalize `WorldExtractor` to Worlds 1–7**: Extract all World 1–7 hubs, stages, animated tile swaps, sub-palettes, doors, and actor spawn tables (`Vegetable Valley`, `Ice Cream Island`, `Butter Building`, `Grape Garden`, `Yogurt Yard`, `Orange Ocean`, `Rainbow Resort`).
+- [ ] **Implement Remaining Copy Abilities, Mid-Bosses & Meta Loops**: Add remaining Copy Abilities, mid-boss encounters, Arena/Museum/Sub-Game rooms, 3-slot Battery Save / Game Over flow, Pause Screen ability description display, and Credits/Ending sequence.
