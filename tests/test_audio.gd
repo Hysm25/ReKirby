@@ -246,13 +246,25 @@ func _test_live_rom_audio_extraction_and_music_player() -> void:
 	_assert_eq_int(MusicPlayer.decode_signed_5bit_note_offset(0x19), -7, "5-bit signed note offset 0x19 decodes to -7")
 	_assert_eq_int(MusicPlayer.decode_signed_5bit_note_offset(0x05), 5, "5-bit signed note offset 0x05 decodes to +5")
 
-	# Trigger SFX override via EventBus and verify BGM keeps running seamlessly afterward
-	EventBus.sfx_requested.emit(1)
-	_assert_eq_int(mp.get_current_sfx_id(), 1, "EventBus.sfx_requested(1) activates SFX override")
+	# Trigger SFX override via EventBus and verify 0xE3 pitch sweep + BGM restoration afterward
+	EventBus.sfx_requested.emit(Constants.NesSfx.STAR_SPIT)
+	_assert_eq_int(mp.get_current_sfx_id(), Constants.NesSfx.STAR_SPIT, "EventBus.sfx_requested(STAR_SPIT) activates SFX override")
+	var periods_seen: Dictionary = {}
 	for _i: int in range(15):
 		mp.step_frame()
 		apu.step_audio_frame()
+		for ch_sfx: MusicPlayer.ChannelRunner in mp._sfx_channels:
+			if ch_sfx.active and ch_sfx.last_period > 0:
+				periods_seen[ch_sfx.last_period] = true
+	_assert_true(periods_seen.size() >= 3, "Bank 29 0xE3 pitch-bend sweeps SFX 1 across >= 3 periods (got %d)" % periods_seen.size())
 	_assert_true(mp.is_bgm_playing(), "BGM remains synced and playing after SFX override")
+
+	# Verify Jump and Door Warp SFX play cleanly across EventBus
+	for sfx_id: int in [Constants.NesSfx.JUMP, Constants.NesSfx.DOOR_WARP, Constants.NesSfx.HURT]:
+		EventBus.sfx_requested.emit(sfx_id)
+		_assert_eq_int(mp.get_current_sfx_id(), sfx_id, "EventBus.sfx_requested(%d) starts gameplay SFX" % sfx_id)
+		mp.step_frame()
+		apu.step_audio_frame()
 
 	EventBus.audio_stop_requested.emit()
 	_assert_true(not mp.is_bgm_playing(), "EventBus.audio_stop_requested stops playback cleanly")

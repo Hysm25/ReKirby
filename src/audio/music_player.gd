@@ -42,6 +42,7 @@ class ChannelRunner extends RefCounted:
 	var env_wait: int = 0
 	var base_note: int = 0
 	var detune: int = 0
+	var vibrato_id: int = 0
 	var last_period: int = 0
 	var is_rested: bool = true
 	var dmc_addr_reg: int = 240
@@ -68,6 +69,7 @@ class ChannelRunner extends RefCounted:
 		env_wait = 0
 		base_note = 0
 		detune = 0
+		vibrato_id = 0
 		last_period = 0
 		is_rested = true
 		loop_stack.clear()
@@ -240,7 +242,8 @@ func play_sfx(sfx_id: int) -> bool:
 		var start_addr: int = int(ch_d.get("start_addr", 0))
 		var hw_ch: int = int(REG_TO_HW_CH.get(reg_off, 0))
 		var s_runner: ChannelRunner = _sfx_channels[hw_ch]
-		if s_runner.active and s_runner.priority > prio:
+		# Bank 29 ($8046): lower priority value = higher precedence
+		if s_runner.active and s_runner.priority < prio:
 			continue
 		s_runner.start_stream(blocks, start_addr, reg_off, hw_ch, true, prio)
 		started = true
@@ -333,18 +336,23 @@ func _step_runner(ch: ChannelRunner, output_to_apu: bool) -> void:
 				ch.dmc_addr_reg = a_reg
 				ch.dmc_len_reg = l_reg
 			0xE1:
-				var arg: int = _read_arg(stream, ch)
-				if not _tempo_tables.is_empty():
-					ch.tempo_idx = arg % _tempo_tables.size()
+				# Bank 29 $8413 writes global fade/attenuation ($0601); tempo is 0xF2 ($06AF,X)
+				var _fade_arg: int = _read_arg(stream, ch)
 			0xE2:
-				var _len_arg: int = _read_arg(stream, ch)
-				var d_arg: int = _read_arg(stream, ch)
-				ch.duty = (d_arg >> 6) & 3
-				ch.env_vol = clampi(d_arg & 0x0F, 0, 15)
+				# Bank 29 $83DC writes raw 11-bit period ($4002/$4003) and retriggers channel
+				var p_lo: int = _read_arg(stream, ch)
+				var p_hi_len: int = _read_arg(stream, ch)
+				ch.last_period = clampi(p_lo | ((p_hi_len & 0x07) << 8), 8, 0x7FF)
+				ch.is_rested = false
+				_start_attack_envelope(ch)
 				if output_to_apu:
-					_apply_channel_volume_to_apu(ch)
+					_write_channel_period_and_ctrl(ch, ch.last_period)
 			0xE3:
-				ch.detune = _to_signed_byte(_read_arg(stream, ch))
+				# Bank 29 $8404 -> $8666 adds signed 8-bit period delta to active period
+				var delta_p: int = _to_signed_byte(_read_arg(stream, ch))
+				ch.last_period = clampi(ch.last_period + delta_p, 8, 0x7FF)
+				if output_to_apu and not ch.is_rested:
+					_write_channel_period_only(ch, ch.last_period)
 			0xF0:
 				var v_arg: int = _read_arg(stream, ch)
 				ch.master_vol = v_arg & 0x0F
@@ -371,7 +379,7 @@ func _step_runner(ch: ChannelRunner, output_to_apu: bool) -> void:
 					ch.env_seq = []
 					ch.env_vol = 15
 			0xF7:
-				var _tbl_v: int = _read_arg(stream, ch)
+				ch.vibrato_id = _read_arg(stream, ch)
 			0xF8:
 				var j_lo: int = _read_arg(stream, ch)
 				var j_hi: int = _read_arg(stream, ch)
@@ -573,6 +581,12 @@ func _handle_note_byte(ch: ChannelRunner, stream: Array, b: int, output_to_apu: 
 	if not output_to_apu or _apu == null:
 		return
 
+	_write_channel_period_and_ctrl(ch, period)
+
+
+func _write_channel_period_and_ctrl(ch: ChannelRunner, period: int) -> void:
+	if _apu == null:
+		return
 	var out_vol: int = ch.effective_volume()
 	var ctrl: int = ((ch.duty & 3) << 6) | 0x30 | out_vol
 	if ch.hw_ch == 0:
@@ -585,6 +599,20 @@ func _handle_note_byte(ch: ChannelRunner, stream: Array, b: int, output_to_apu: 
 		_apu.write_register(0x4007, 0xF8 | ((period >> 8) & 0x07))
 	elif ch.hw_ch == 2:
 		_apu.write_register(0x4008, 0xFF if out_vol >= 4 else 0x00)
+		_apu.write_register(0x400A, period & 0xFF)
+		_apu.write_register(0x400B, 0xF8 | ((period >> 8) & 0x07))
+
+
+func _write_channel_period_only(ch: ChannelRunner, period: int) -> void:
+	if _apu == null:
+		return
+	if ch.hw_ch == 0:
+		_apu.write_register(0x4002, period & 0xFF)
+		_apu.write_register(0x4003, 0xF8 | ((period >> 8) & 0x07))
+	elif ch.hw_ch == 1:
+		_apu.write_register(0x4006, period & 0xFF)
+		_apu.write_register(0x4007, 0xF8 | ((period >> 8) & 0x07))
+	elif ch.hw_ch == 2:
 		_apu.write_register(0x400A, period & 0xFF)
 		_apu.write_register(0x400B, 0xF8 | ((period >> 8) & 0x07))
 

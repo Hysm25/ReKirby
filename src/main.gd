@@ -300,6 +300,7 @@ func _step_projectiles(
 					if enemy.take_damage(proj.get_damage(), kdir):
 						if not enemy.is_alive():
 							_add_score(enemy.score_value)
+							EventBus.sfx_requested.emit(Constants.NesSfx.BLOCK_BREAK)
 						hit_something = true
 						break
 			if not hit_something and _boss != null and is_instance_valid(_boss) and not _boss.is_defeated():
@@ -308,6 +309,9 @@ func _step_projectiles(
 						if _boss.is_defeated():
 							_add_score(WhispyWoods.DEFEAT_SCORE)
 							_spawn_projectile_list(_boss.consume_spawned_projectiles())
+							EventBus.sfx_requested.emit(Constants.NesSfx.STAGE_CLEAR)
+						else:
+							EventBus.sfx_requested.emit(Constants.NesSfx.BLOCK_BREAK)
 					hit_something = true
 			if hit_something:
 				proj.kill()
@@ -707,6 +711,7 @@ func _check_door_transition() -> bool:
 	var dst_data: Dictionary = ContentRegistry.get_room_data(dst_room)
 	var spawn_pos: Vector2 = LevelMap.compute_door_spawn_pixel(dst_data, door)
 	if load_world_room(dst_room, spawn_pos, true):
+		EventBus.sfx_requested.emit(Constants.NesSfx.DOOR_WARP)
 		_fade_frames = DOOR_FADE_FRAMES
 		if _transition_rect != null:
 			_transition_rect.color.a = 1.0

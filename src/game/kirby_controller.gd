@@ -339,6 +339,7 @@ func drop_copy_ability() -> bool:
 		state = State.IDLE if on_ground else State.FALL
 		state_frames = 0
 	EventBus.copy_ability_changed.emit(copy_ability)
+	EventBus.sfx_requested.emit(Constants.NesSfx.ABILITY_DROP)
 	_spawned_projectiles.append({
 		"kind": "ability_star",
 		"ability": dropped_ability,
@@ -445,6 +446,7 @@ func take_damage(amount: int = 1, knock_dir: int = -1, bypass_barrier: bool = fa
 	_slide_frames = 0
 	invuln_frames = INVULN_FRAMES
 	state_frames = 0
+	EventBus.sfx_requested.emit(Constants.NesSfx.HURT)
 
 	if hp <= 0:
 		state = State.DEFEAT
@@ -708,14 +710,17 @@ func step_physics() -> void:
 					state_frames = 0
 					_slide_frames = SLIDE_DURATION_FRAMES
 					vel.x = float(facing_dir) * SLIDE_SPEED
+					EventBus.sfx_requested.emit(Constants.NesSfx.SLIDE)
 		elif b_just and copy_ability == Constants.CopyAbility.NONE:
 			_inhaling = true
 			state = State.INHALE
 			state_frames = 0
+			EventBus.sfx_requested.emit(Constants.NesSfx.INHALE)
 		elif b_just and _active_ability != null:
 			_active_ability.start_attack(facing_dir, true, _is_running, pos)
 			state = State.ABILITY_ATTACK
 			state_frames = 0
+			EventBus.sfx_requested.emit(Constants.NesSfx.ABILITY_ATTACK)
 		elif a_just:
 			_start_jump()
 		else:
@@ -732,15 +737,18 @@ func step_physics() -> void:
 			_inhaling = true
 			state = State.INHALE
 			state_frames = 0
+			EventBus.sfx_requested.emit(Constants.NesSfx.INHALE)
 		elif b_just and _active_ability != null:
 			_active_ability.start_attack(facing_dir, false, _is_running, pos)
 			state = State.ABILITY_ATTACK
 			state_frames = 0
+			EventBus.sfx_requested.emit(Constants.NesSfx.ABILITY_ATTACK)
 		elif up_just or a_just:
 			_hovering = true
 			vel.y = HOVER_PUFF_VEL
 			state = State.HOVER
 			state_frames = 0
+			EventBus.sfx_requested.emit(Constants.NesSfx.HOVER_PUFF)
 		else:
 			if a_rel and vel.y < JUMP_CUT_VEL:
 				vel.y = JUMP_CUT_VEL
@@ -758,6 +766,7 @@ func _start_jump() -> void:
 	vel.y = JUMP_VEL
 	state = State.JUMP
 	state_frames = 0
+	EventBus.sfx_requested.emit(Constants.NesSfx.JUMP)
 
 
 func _fire_star_spit() -> void:
@@ -765,6 +774,7 @@ func _fire_star_spit() -> void:
 	cargo_ability = Constants.CopyAbility.NONE
 	state = State.IDLE if on_ground else State.FALL
 	state_frames = 0
+	EventBus.sfx_requested.emit(Constants.NesSfx.STAR_SPIT)
 	_spawned_projectiles.append({
 		"kind": "star_spit",
 		"pos": Vector2(pos.x + float(facing_dir) * 10.0, pos.y - 8.0),
@@ -780,6 +790,7 @@ func _swallow_cargo() -> void:
 		equip_copy_ability(gained)
 	state = State.IDLE
 	state_frames = 0
+	EventBus.sfx_requested.emit(Constants.NesSfx.SWALLOW)
 
 
 func _process_ability_block_breaks() -> void:

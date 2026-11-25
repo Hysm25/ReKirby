@@ -121,6 +121,23 @@ enum NesButton {
 	A = 0x80,
 }
 
+enum NesSfx {
+	POWER_UP_1UP = 0,
+	STAR_SPIT = 1,
+	JUMP = 2,
+	HOVER_PUFF = 3,
+	INHALE = 6,
+	SWALLOW = 7,
+	ABILITY_ATTACK = 11,
+	BLOCK_BREAK = 14,
+	DOOR_WARP = 16,
+	HURT = 17,
+	ABILITY_DROP = 18,
+	SLIDE = 25,
+	PAUSE = 33,
+	STAGE_CLEAR = 39,
+}
+
 enum TileCollision {
 	AIR = 0,
 	SOLID = 1,
