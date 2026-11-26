@@ -43,6 +43,7 @@ var _level_map: LevelMap = null
 var _sprite: Sprite2D = null
 var _tex_a: ImageTexture = null
 var _tex_b: ImageTexture = null
+var _anim_wait_ticks: int = 8
 var _off_a: Vector2 = Vector2(-16.0, -32.0)
 var _off_b: Vector2 = Vector2(-16.0, -32.0)
 
@@ -115,6 +116,7 @@ func _ensure_visual() -> void:
 		if room_id >= 0 and ContentRegistry.has_room(room_id):
 			sp_bank = int(ContentRegistry.get_room_data(room_id).get("sprite_chr_bank", 154))
 		var frames: Array = ContentRegistry.get_actor_metasprite_frames(actor_id)
+		_anim_wait_ticks = ContentRegistry.get_actor_wait_ticks(actor_id)
 		var frame0: Dictionary = frames[0] as Dictionary if frames.size() >= 1 else {}
 		var frame1: Dictionary = frames[1] as Dictionary if frames.size() >= 2 else frame0
 		if not frame0.is_empty():
@@ -246,7 +248,7 @@ func _sync_visual() -> void:
 	if phase == Phase.DEFEATED:
 		_sprite.visible = (_phase_frames < 30) and ((_phase_frames % 4) < 2)
 		return
-	var use_b: bool = (_phase_frames / 10) % 2 == 1 and _tex_b != null
+	var use_b: bool = (_phase_frames / maxi(2, _anim_wait_ticks)) % 2 == 1 and _tex_b != null
 	if use_b:
 		_sprite.texture = _tex_b
 		_sprite.position = _off_b

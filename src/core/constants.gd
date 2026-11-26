@@ -59,7 +59,7 @@ const PALETTES_PATH: String = "user://nes_data/palettes.json"
 const WORLD1_DATA_PATH: String = "user://nes_data/world1_data.json"
 const AUDIO_DATA_PATH: String = "user://nes_data/audio_data.json"
 const SAVE_DATA_PATH: String = "user://save_data.json"
-const EXTRACTION_FORMAT_VERSION: int = 8
+const EXTRACTION_FORMAT_VERSION: int = 9
 
 # PRG-ROM MMC3 structural table locations (Kirby's Adventure USA Rev A)
 const PRG_BANK_PALETTE_TABLES: int = 0

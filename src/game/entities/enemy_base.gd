@@ -51,6 +51,7 @@ var _room_sprite_chr_bank: int = 154
 var _level_map: LevelMap = null
 var _spawned_projectiles: Array[Dictionary] = []
 var _sprite: Sprite2D = null
+var _anim_wait_ticks: int = 8
 var _frames_left: Array[Dictionary] = []
 var _frames_right: Array[Dictionary] = []
 var _tex_a_right: ImageTexture = null
@@ -609,6 +610,7 @@ func _refresh_rom_textures() -> void:
 	_frames_right.clear()
 	var room_id: int = _level_map.get_room_id() if _level_map != null else -1
 	var room_pals: Array[PackedColorArray] = ContentRegistry.get_room_sprite_palettes(room_id)
+	_anim_wait_ticks = ContentRegistry.get_actor_wait_ticks(actor_id)
 	var rom_frames: Array = ContentRegistry.get_actor_metasprite_frames(actor_id)
 	if not rom_frames.is_empty():
 		if actor_id == 16 and rom_frames.size() >= 6:
@@ -659,7 +661,7 @@ func get_current_anim_frame_index() -> int:
 		if _frames_right.size() >= 3:
 			return 2
 		return 1
-	return (_state_frames / 8) % 2
+	return (_state_frames / maxi(2, _anim_wait_ticks)) % 2
 
 
 func _sync_visual() -> void:

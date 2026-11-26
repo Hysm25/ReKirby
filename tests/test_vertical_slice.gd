@@ -353,6 +353,9 @@ func _test_live_world1_stages_and_boss_vertical_slice() -> void:
 	var boss: WhispyWoods = game.get_boss() as WhispyWoods
 	_assert_true(boss != null and boss.phase != WhispyWoods.Phase.INTRO, "Whispy Woods advances out of INTRO at 60 TPS")
 	if boss != null:
+		var canopy_spr: Sprite2D = boss.get_canopy_patch_sprite()
+		_assert_true(canopy_spr != null and canopy_spr.texture != null, "Whispy Woods builds Room 30 Bank 180 canopy patch sprite")
+	if boss != null:
 		boss.hp = 2
 		var spit: StarProjectile = StarProjectile.new()
 		spit.setup(StarProjectile.Kind.STAR_SPIT, Vector2(boss.pos.x - 16.0, boss.pos.y - 20.0), Vector2(4.5, 0.0), game._level_map)
@@ -512,6 +515,24 @@ func _test_live_world1_stages_and_boss_vertical_slice() -> void:
 	game._kirby.step_physics()
 	var tornado_ab: AbilityBase = game._kirby.get_active_ability()
 	_assert_true(tornado_ab != null and not tornado_ab._sprites.is_empty() and tornado_ab._sprites[0].texture != null, "AbilityGeneric TORNADO renders ROM metasprite effect texture")
+
+	# Verify Multi-Round Egg Catcher (0x1B, 5 rounds -> catch >= 3 awards +1000 & +1UP)
+	var score_egg: int = game.get_score()
+	var lives_egg: int = game.get_lives()
+	_assert_true(game.start_subgame(SubgameOverlay.SubgameKind.EGG_CATCHER), "Main launches multi-round Egg Catcher (0x1B)")
+	for _round_step: int in range(280):
+		if game.get_current_state() != Constants.GameState.SUBGAME:
+			break
+		var sg: SubgameOverlay = game._subgame_overlay
+		var spd: float = 1.35 + float(sg._egg_round - 1) * 0.25
+		var next_y: float = 46.0 + float(sg._egg_round_frames + 1) * spd
+		var want_catch: bool = not sg._acted and absf(next_y - 98.0) <= 6.0
+		InputManager.set_mock_mask(Constants.NesButton.A if want_catch else 0)
+		InputManager.step_frame()
+		sg.step_frame()
+	_assert_eq_int(game.get_current_state(), Constants.GameState.PLAYING, "Multi-round Egg Catcher returns to PLAYING after 5 rounds")
+	_assert_true(game.get_score() >= score_egg + 1000, "Winning 5-round Egg Catcher awards +1000 bonus points")
+	_assert_eq_int(game.get_lives(), lives_egg + 1, "Winning 5-round Egg Catcher awards +1UP")
 
 	InputManager.clear_mock_mask()
 	game._clear_room_entities()

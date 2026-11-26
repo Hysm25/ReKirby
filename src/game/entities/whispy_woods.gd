@@ -38,9 +38,11 @@ var _canopy_y: float = 408.0
 var _mouth_y: float = 488.0
 var _spawned_projectiles: Array[Dictionary] = []
 var _face_sprite: Sprite2D = null
+var _canopy_patch_sprite: Sprite2D = null
 var _face_tex_idle: ImageTexture = null
 var _face_tex_blink: ImageTexture = null
 var _face_tex_puff: ImageTexture = null
+var _canopy_tex: ImageTexture = null
 
 
 func _ready() -> void:
@@ -55,11 +57,25 @@ func _ensure_visual() -> void:
 		_face_sprite.position = Vector2(0.0, -76.0)
 		_face_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		add_child(_face_sprite)
+	if _canopy_patch_sprite == null:
+		_canopy_patch_sprite = Sprite2D.new()
+		_canopy_patch_sprite.name = "WhispyCanopyPatch"
+		_canopy_patch_sprite.centered = true
+		_canopy_patch_sprite.position = Vector2(0.0, -138.0)
+		_canopy_patch_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		add_child(_canopy_patch_sprite)
 	if _face_tex_idle == null and ContentRegistry.is_ready():
 		var pal_key: String = "room_30_bg_2"
 		if ContentRegistry.get_palette_indices(pal_key).is_empty():
 			pal_key = "hud_bg_0"
-		# Authentic Whispy Woods face tiles from CHR Bank 180 (idle, blink, puff)
+		# Authentic Whispy Woods face & canopy patch tiles from CHR Bank 180
+		_canopy_tex = ContentRegistry.build_rom_sprite_texture(
+			180,
+			PackedInt32Array([0, 1, 18, 20, 22, 24, 25, 26]),
+			4,
+			2,
+			pal_key
+		)
 		_face_tex_idle = ContentRegistry.build_rom_sprite_texture(
 			180,
 			PackedInt32Array([2, 4, 6, 8, 3, 5, 7, 9]),
@@ -83,6 +99,12 @@ func _ensure_visual() -> void:
 		)
 	if _face_tex_idle != null and _face_sprite.texture == null:
 		_face_sprite.texture = _face_tex_idle
+	if _canopy_tex != null and _canopy_patch_sprite != null and _canopy_patch_sprite.texture == null:
+		_canopy_patch_sprite.texture = _canopy_tex
+
+
+func get_canopy_patch_sprite() -> Sprite2D:
+	return _canopy_patch_sprite
 
 
 func setup(spawn_pos: Vector2, level_map: LevelMap = null) -> void:
@@ -220,5 +242,10 @@ func _sync_visual() -> void:
 		_face_sprite.texture = _face_tex_idle
 	if _invuln_frames > 0:
 		_face_sprite.visible = (_invuln_frames % 2) == 0
+		if _canopy_patch_sprite != null:
+			_canopy_patch_sprite.position = Vector2(float((_invuln_frames % 3) - 1) * 2.0, -138.0)
 	else:
 		_face_sprite.visible = true
+		if _canopy_patch_sprite != null:
+			var rustle_y: float = -137.0 if (phase == Phase.DROP_APPLES and (_phase_frames % 8) < 4) else -138.0
+			_canopy_patch_sprite.position = Vector2(0.0, rustle_y)

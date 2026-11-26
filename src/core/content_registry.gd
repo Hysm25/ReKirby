@@ -456,6 +456,20 @@ func get_actor_metasprite_frames(actor_id: int) -> Array:
 	return frames_var as Array if (frames_var is Array) else []
 
 
+func get_actor_wait_ticks(actor_id: int) -> int:
+	if not _initialized:
+		return 8
+	var actors_var: Variant = _metasprites.get("actors", {})
+	if not (actors_var is Dictionary):
+		return 8
+	var actors_dict: Dictionary = actors_var as Dictionary
+	var key: String = str(actor_id)
+	if not actors_dict.has(key):
+		return 8
+	var entry: Dictionary = actors_dict[key] as Dictionary
+	return clampi(int(entry.get("wait_ticks", 8)), 2, 24)
+
+
 func get_kirby_metasprite_frame(table_key: String, frame_idx: int) -> Dictionary:
 	if not _initialized:
 		return {}

@@ -13,6 +13,8 @@ enum SubgameKind {
 	QUICK_DRAW = 0x1C,
 }
 
+const EGG_ROUNDS: int = 5
+
 var kind: int = SubgameKind.QUICK_DRAW
 var active: bool = false
 var won: bool = false
@@ -23,6 +25,9 @@ var _frame: int = 0
 var _target_frame: int = 45
 var _cursor_x: float = 40.0
 var _cursor_dir: float = 2.4
+var _egg_round: int = 1
+var _egg_round_frames: int = 0
+var _eggs_caught: int = 0
 var _acted: bool = false
 var _finish_timer: int = 0
 
@@ -87,6 +92,9 @@ func start_subgame(p_kind: int) -> void:
 	_target_frame = 42
 	_cursor_x = 40.0
 	_cursor_dir = 2.6
+	_egg_round = 1
+	_egg_round_frames = 0
+	_eggs_caught = 0
 	_acted = false
 	_finish_timer = 0
 	visible = true
@@ -112,7 +120,7 @@ func start_subgame(p_kind: int) -> void:
 			_actor_sprite.position = Vector2(_cursor_x, 60.0)
 		SubgameKind.EGG_CATCHER:
 			_title_label.text = "EGG CATCHER"
-			_status_label.text = "PRESS A AS EGG LANDS!"
+			_status_label.text = "ROUND 1/5  CAUGHT:0"
 			_target_sprite.position = Vector2(128.0, 98.0)
 			_actor_sprite.position = Vector2(128.0, 46.0)
 		_:
@@ -147,12 +155,24 @@ func step_frame() -> void:
 				won = absf(_cursor_x - 128.0) <= 28.0
 				_apply_outcome()
 		SubgameKind.EGG_CATCHER:
-			var fall_y: float = 46.0 + float(_frame) * 1.35
+			_egg_round_frames += 1
+			var fall_spd: float = 1.35 + float(_egg_round - 1) * 0.25
+			var fall_y: float = 46.0 + float(_egg_round_frames) * fall_spd
 			_actor_sprite.position = Vector2(128.0, minf(120.0, fall_y))
 			if pressed_act or fall_y >= 118.0:
-				_acted = true
-				won = pressed_act and absf(fall_y - 98.0) <= 24.0
-				_apply_outcome()
+				if pressed_act and absf(fall_y - 98.0) <= 24.0:
+					_eggs_caught += 1
+					EventBus.sfx_requested.emit(Constants.NesSfx.SWALLOW)
+				else:
+					EventBus.sfx_requested.emit(Constants.NesSfx.ABILITY_DROP)
+				_egg_round += 1
+				_egg_round_frames = 0
+				if _egg_round > EGG_ROUNDS:
+					_acted = true
+					won = _eggs_caught >= 3
+					_apply_outcome()
+				else:
+					_status_label.text = "ROUND %d/%d  CAUGHT:%d" % [_egg_round, EGG_ROUNDS, _eggs_caught]
 		_:
 			if _frame == _target_frame:
 				_status_label.text = "FIRE!! PRESS A!"

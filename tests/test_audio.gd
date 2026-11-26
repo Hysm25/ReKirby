@@ -75,6 +75,18 @@ func _test_pulse_duty_sweep_and_envelope() -> void:
 	apu.write_register(0x4001, 0x00)
 	_assert_true((apu.get_active_channel_mask() & 0x01) != 0, "Pulse 1 remains active after sweep")
 
+	# Hardware 2A03 sweep overflow mute vs negated sweep bass allowance
+	var pch: APUEngine.PulseChannel = APUEngine.PulseChannel.new()
+	pch.enabled = true
+	pch.length_counter = 10
+	pch.period = 0x500
+	pch.sweep_negate = false
+	pch.sweep_shift = 0
+	_assert_true(pch.is_muted_by_hardware(), "Hardware 2A03 sweep target > 0x7FF mutes unnegated high-period bass")
+	_assert_true(is_zero_approx(pch.compute_hardware_sweep_edge()), "Sweep edge gate returns 0.0 on overflow")
+	pch.sweep_negate = true
+	_assert_true(not pch.is_muted_by_hardware(), "Negated sweep ($4001=0x08) keeps low-frequency bass notes audible")
+
 	apu.free()
 
 

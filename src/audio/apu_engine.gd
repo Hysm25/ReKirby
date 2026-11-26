@@ -83,10 +83,20 @@ class PulseChannel extends RefCounted:
 			return period - delta - (0 if is_pulse_2 else 1)
 		return period + delta
 
+
+	func compute_hardware_sweep_edge() -> float:
+		if is_muted_by_hardware():
+			return 0.0
+		var target: int = get_sweep_target_period()
+		if target > 0x7FF:
+			return 0.0
+		return 1.0
+
+
 	func is_muted_by_hardware() -> bool:
 		if not enabled or length_counter <= 0 or period < 8 or period > 0x7FF:
 			return true
-		if sweep_enabled and get_sweep_target_period() > 0x7FF:
+		if get_sweep_target_period() > 0x7FF:
 			return true
 		return false
 

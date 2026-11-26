@@ -365,6 +365,9 @@ func _test_live_rom_ingestion_if_present() -> void:
 	for core_aid: int in [14, 15, 16, 17, 18, 41, 56]:
 		var a_frames: Array = ContentRegistry.get_actor_metasprite_frames(core_aid)
 		_assert_true(a_frames.size() >= 4, "World 1 actor_id %d extracted >= 4 ROM metasprite frames (got %d)" % [core_aid, a_frames.size()])
+	_assert_eq_int(ContentRegistry.get_actor_wait_ticks(56), 6, "Poppy Bros Jr (aid 56) extracts 0x0F wait_ticks=6")
+	_assert_eq_int(ContentRegistry.get_actor_wait_ticks(17), 3, "Blade Knight (aid 17) extracts 0x0F wait_ticks=3")
+	_assert_eq_int(ContentRegistry.get_actor_wait_ticks(67), 4, "Paint Roller (aid 67) extracts 0x0F wait_ticks=4")
 	var bronto_frames: Array = ContentRegistry.get_actor_metasprite_frames(41)
 	if bronto_frames.size() >= 2:
 		var br_sprs: Array = (bronto_frames[1] as Dictionary).get("sprites", []) as Array

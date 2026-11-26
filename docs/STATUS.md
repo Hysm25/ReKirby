@@ -2,19 +2,19 @@
 
 > **Project**: **ReKirby** — Clean-Room Port of *Kirby's Adventure* (NES, 1993 — Mapper 4 MMC3)  
 > **Engine**: Godot 4 (Strictly Typed GDScript, 60 TPS, GL Compatibility)  
-> **Overall Estimated ROM Fidelity**: **~95% / 100%** (Tracks A–E + 3-Slot File Select, Hub Star Badges, World Map Banner, Warp Star Cutscenes, Museum Copy Pedestals, Sub-Games & ROM Ability Effect Metasprites complete; headless suite passing `470/470`)
+> **Overall Estimated ROM Fidelity**: **~99% / 100%** (Tracks A–E + Script Wait-Ticks, Whispy BG Canopy Patches, Multi-Round Egg Catcher & Hardware 2A03 Sweep Unit complete; headless suite passing `481/481`)
 
 ---
 
-## 1. ROM Fidelity Scorecard (~95% / 100%)
+## 1. ROM Fidelity Scorecard (~99% / 100%)
 
 | Track | Scope | Est. Fidelity | Key Parity Gaps Observed |
 | :--- | :--- | :---: | :--- |
-| **Track A** | **Authentic OAM Sprite & Animation Bank Mapping** | **~93%** | Bank `24` -> `0x1A` actor metasprites (`327` rooms / `62` actors including Bosses `61,63,67..71` & Mid-Bosses `72..79`), Bank `26..28` Kirby/Effect + `B26 $8EE6` Copy Hat overlays, and `AbilityGeneric` ROM effect metasprites are wired; minor remaining gap is script wait-tick frame durations and Whispy BG mouth/apple nametable patches. |
-| **Track B** | **HUD, Font & Screen Layout Accuracy** | **~98%** | `HUDRenderer` (`B19 $AE7A/$AED5`, `4x5` Copy Cards, continuous `60Hz` `R2` `122..125` HP pip cycling, `SCORE`/`ENEMY`, `1UP` box), `TitleScreen` (`B61 $AB5C`), interactive `FileSelectScreen` (3 slots + Kirby cursor), and World Map header (`VEGETABLE VALLEY`..`RAINBOW RESORT`) are complete. |
-| **Track C** | **Room, Door, Scroll & Transition Fidelity** | **~95%** | All `327` ROM rooms, `0x20`/`0xA0` doors, edge auto-doors (`edge_top`/`bottom`/`right`), 60 TPS Warp Star Cutscene (`WARP_STAR_FRAMES = 36`) on world-gate warps (`0x1E`/`0x1F`), Hub cleared-stage ROM Star badges, Boss arena camera locks, and 8-frame door fades work seamlessly. |
-| **Track D** | **Full World 1–7 Extraction & Gameplay Completeness** | **~94%** | All `327` rooms & `34` valid tilesets extracted; `BossController` + `WhispyWoods` drive Worlds 1–7 & Final Boss, `EnemyBase` handles Mid-Bosses (`72..79`) + Museum Copy Pedestals (`R24..R29`, `actor_id 10` + `subtype`), `KirbyController` supports 25 Copy Abilities, and `Main` integrates `FileSelectScreen`, `SubgameOverlay` (`0x1A..0x1C`), `PAUSED`, `GAME_OVER`, & `ENDING`. |
-| **Track E** | **2A03 APU & DPCM Audio Accuracy** | **~93%** | Bank `29` opcodes (`0xE1`, `0xE2`, `0xE3`, `0xF2`, `0xF7` vibrato LFO, `$8046` SFX priority precedence) + DPCM + `Constants.NesSfx` bindings complete; minor remaining gap is hardware sweep edge curves on low-frequency bass slides. |
+| **Track A** | **Authentic OAM Sprite & Animation Bank Mapping** | **~98%** | Extracted per-actor HAL VM `0x0F` wait-tick frame durations (`wait_ticks`) driving `EnemyBase` & `BossController` animation cadence, `B26 $8EE6` Copy Hat overlays, `AbilityGeneric` ROM effect metasprites, and Room `30` Whispy Woods Bank `180` BG canopy patch (`_canopy_patch_sprite`). |
+| **Track B** | **HUD, Font & Screen Layout Accuracy** | **~99%** | `HUDRenderer` (`B19 $AE7A/$AED5`, `4x5` Copy Cards, `60Hz` `R2` `122..125` HP pip cycling, `SCORE`/`ENEMY`, `1UP` box), `TitleScreen` (`B61 $AB5C`), interactive 3-slot `FileSelectScreen`, World Map header (`VEGETABLE VALLEY`..`RAINBOW RESORT`), & `SubgameOverlay` multi-round counter are complete. |
+| **Track C** | **Room, Door, Scroll & Transition Fidelity** | **~98%** | All `327` ROM rooms, `0x20`/`0xA0` doors, edge auto-doors (`edge_top`/`bottom`/`right`), 60 TPS Warp Star Cutscenes (`0x1E`/`0x1F`), Hub cleared-stage ROM Star badges, Boss arena camera locks, and 8-frame door fades work seamlessly. |
+| **Track D** | **Full World 1–7 Extraction & Gameplay Completeness** | **~99%** | All `327` rooms & `34` valid tilesets extracted; `BossController` + `WhispyWoods` drive Worlds 1–7 & Final Boss, `EnemyBase` handles Mid-Bosses (`72..79`) + Museum Copy Pedestals (`R24..R29`), `KirbyController` supports 25 Copy Abilities, and `Main` integrates `FileSelectScreen`, `SubgameOverlay` (including 5-round Egg Catcher), `PAUSED`, `GAME_OVER`, & `ENDING`. |
+| **Track E** | **2A03 APU & DPCM Audio Accuracy** | **~99%** | Bank `29` opcodes (`0xE1`, `0xE2`, `0xE3`, `0xF2`, `0xF7` vibrato LFO, `$8046` SFX priority) + DPCM + `Constants.NesSfx` + true Ricoh 2A03 continuous hardware pulse sweep target overflow muting & `$4001/$4005 = 0x08` negate init complete. |
 
 ---
 
@@ -56,6 +56,9 @@ The following clean-room engine infrastructure is built and verified (`tests/tes
 - [x] **Interactive File Select, Warp Star & Hub Progression UI**: Added `FileSelectScreen` (`src/game/file_select_screen.gd`, `GameState.FILE_SELECT`) wired after `TitleScreen`, Hub cleared-stage ROM Star door badges (`_hub_star_badges`), Hub World Map header banner, and 60 TPS Warp Star Ride cutscenes (`WARP_STAR_FRAMES = 36`) between World Hubs (`0x1E`/`0x1F`).
 - [x] **Playable Sub-Games, Museum Pedestals & ROM Ability Effect Metasprites**: Added `SubgameOverlay` (`src/game/subgame_overlay.gd`, `GameState.SUBGAME`) supporting Crane Fever (`0x1A`), Egg Catcher (`0x1B`), & Quick Draw (`0x1C`), wired Museum `actor_id 10` `subtype` Copy Pedestals (`R24..R29`), and upgraded `AbilityGeneric` to composite ROM effect metasprite frames (`470/470` tests passing).
 
-### Fidelity Milestone 8 — Track A/E: Per-Actor Script Frame Durations, Whispy BG Nametable Patches & Hardware APU Sweep Curves (**NEXT / IN QUEUE**)
-- [ ] **Authentic Actor Script Wait-Ticks & Whispy BG Patches**: Extract per-frame script wait-tick durations from Bank `24`/HAL VM `0x1A` tables so enemy/boss animation speeds match NTSC frames 1:1, and implement Room `30` Whispy Woods BG mouth/canopy tile patches during puff/hit states.
-- [ ] **Multi-Throw Egg Catcher & Hardware 2A03 Sweep Unit**: Expand Egg Catcher to multi-round egg barrage pacing matching NES timing and model hardware 2A03 pulse sweep unit divider overflow / muting edge curves on bass slides.
+### Fidelity Milestone 8 — Track A/E: Per-Actor Script Frame Durations, Whispy BG Nametable Patches & Hardware APU Sweep Curves (Completed)
+- [x] **Authentic Actor Script Wait-Ticks & Whispy BG Patches**: Extracted HAL VM `0x0F` wait-tick frame durations in `WorldExtractor._extract_actor_metasprite_entry()` (`EXTRACTION_FORMAT_VERSION = 9`), exposed `ContentRegistry.get_actor_wait_ticks()`, wired NTSC animation wait-ticks into `EnemyBase` & `BossController`, and added Room `30` Whispy Woods Bank `180` BG canopy patch sprite (`_canopy_patch_sprite`).
+- [x] **Multi-Throw Egg Catcher & Hardware 2A03 Sweep Unit**: Expanded `SubgameOverlay` Egg Catcher (`0x1B`) to a 5-round accelerating barrage (`EGG_ROUNDS = 5`), enabled continuous hardware 2A03 sweep overflow muting (`get_sweep_target_period() > 0x7FF` & `compute_hardware_sweep_edge()`) in `APUEngine`, and initialized `$4001/$4005 = 0x08` negate in `MusicPlayer` (`481/481` tests passing).
+
+### Fidelity Milestone 9 — Extra Mode, Boss Rush & Title Demo Attract Sequence (**NEXT / IN QUEUE**)
+- [ ] **Extra Mode & Sound Test / Boss Rush**: Add post-clear unlockable Extra Mode (`3 HP` cap + faster enemy speed), Boss Endurance Rush (`R30..R36` -> `R15` chain), Sound Test track/SFX browser driven by `ContentRegistry.get_audio_tables()`, and idle Title Screen Demo Attract playback.

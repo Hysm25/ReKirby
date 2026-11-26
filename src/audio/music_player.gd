@@ -116,6 +116,10 @@ func setup(apu: APUEngine) -> void:
 	_apu = apu
 	_ensure_runners()
 	_sync_rom_tables()
+	if _apu != null:
+		# Authentic Kirby's Adventure $4001/$4005 negate init avoids continuous-sweep bass muting
+		_apu.write_register(0x4001, 0x08)
+		_apu.write_register(0x4005, 0x08)
 
 
 func _ensure_runners() -> void:

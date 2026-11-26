@@ -734,6 +734,13 @@ static func _extract_actor_metasprite_entry(mapper: MMC3Mapper, actor_id: int) -
 					if slice[j] == 0x20 and slice[j + 1] == 0xAA and slice[j + 2] == 0xDD:
 						has_r0 = true
 						break
+				var wait_ticks: int = 8
+				for w_i: int in range(maxi(0, i), mini(slice.size() - 1, i + 80)):
+					if slice[w_i] == 0x0F:
+						var w_val: int = int(slice[w_i + 1]) & 0xFF
+						if w_val >= 2 and w_val <= 24:
+							wait_ticks = w_val
+							break
 				var frames: Array[Dictionary] = _parse_oam_frame_table(mapper, tbl_bank, tbl_addr, has_r0, 64)
 				if not frames.is_empty():
 					return {
@@ -743,6 +750,7 @@ static func _extract_actor_metasprite_entry(mapper: MMC3Mapper, actor_id: int) -
 						"table_bank": tbl_bank,
 						"table_addr": tbl_addr,
 						"has_r0_prefix": has_r0,
+						"wait_ticks": wait_ticks,
 						"frames": frames,
 					}
 	return {}
